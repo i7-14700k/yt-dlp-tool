@@ -12,8 +12,8 @@ from PySide6.QtWidgets import QFileDialog, QScrollArea, QSizePolicy, QVBoxLayout
 from ..core import conform, naming
 from ..core.settings import OutputOptions
 from . import icons, theme as T
-from .kit import (IconButton, Label, Segmented, Select, TextField, Toggle, _Hover, hbox, mix, rounded,
-                  vbox)
+from .kit import (IconButton, Label, Segmented, Select, TextField, Toggle, _Hover, focus_mark, hbox, kbd_focus, mix,
+                  rounded, vbox)
 
 PROFILE_ROWS = [
     ("h264", "H.264", "MP4 · AAC"),
@@ -97,7 +97,7 @@ class ProfileList(QWidget):
     def paintEvent(self, _e) -> None:  # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        rounded(p, QRectF(self.rect()), T.R_MD + 2, T.S2 if not self.hasFocus() else T.S3)
+        rounded(p, QRectF(self.rect()), T.R_MD + 2, T.S2 if not kbd_focus(self) else T.S3)
         for i, (key, name, detail) in enumerate(PROFILE_ROWS):
             r = self._row(i)
             sel = key == self.value
@@ -111,6 +111,8 @@ class ProfileList(QWidget):
             p.setFont(self._detail)
             p.setPen(T.INV_FG2 if sel else T.FG3)
             p.drawText(r.adjusted(0, 0, -12, 0), Qt.AlignRight | Qt.AlignVCenter, detail)
+            if sel and kbd_focus(self):
+                focus_mark(p, r, T.BG, inset=12)
 
 
 class FolderRow(QWidget):
@@ -124,6 +126,7 @@ class FolderRow(QWidget):
         self._f = T.font(13, 500)
         self._f2 = T.font(11.5, 400, mono=True)
         self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.TabFocus)
         self.setFixedHeight(48)
         self.setToolTip("Change folder")
 
@@ -142,10 +145,26 @@ class FolderRow(QWidget):
         if e.button() == Qt.LeftButton and self.rect().contains(e.position().toPoint()):
             self.clicked.emit()
 
+    def keyPressEvent(self, e) -> None:  # noqa: N802
+        if e.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space):
+            self.clicked.emit()
+        else:
+            super().keyPressEvent(e)
+
+    def focusInEvent(self, e) -> None:  # noqa: N802
+        self.update()
+        super().focusInEvent(e)
+
+    def focusOutEvent(self, e) -> None:  # noqa: N802
+        self.update()
+        super().focusOutEvent(e)
+
     def paintEvent(self, _e) -> None:  # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        rounded(p, QRectF(self.rect()), T.R_MD, mix(T.S2, T.S3, self._hover.value))
+        rounded(p, QRectF(self.rect()), T.R_MD, mix(T.S2, T.S3, max(self._hover.value, kbd_focus(self))))
+        if kbd_focus(self):
+            focus_mark(p, QRectF(self.rect()), T.FG, inset=12)
         icons.draw(p, "folder", QRectF(12, self.height() / 2 - 8, 16, 16), T.FG2)
         path = Path(self.path) if self.path else None
         name = path.name if path else "Choose a folder"

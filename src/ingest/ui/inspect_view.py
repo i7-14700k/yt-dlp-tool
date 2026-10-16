@@ -15,7 +15,7 @@ from ..core.settings import OutputOptions, copy_options
 from ..core.util import (domain_of, fps_label, human_bytes, human_duration, parse_timecode, short_res, timecode)
 from ..core.ytdlp import Attempt, Network, Tools, codec_family, load_info, resolve_args
 from . import icons, theme as T
-from .kit import Button, Label, Spinner, TextField, hbox, rounded, vbox
+from .kit import Button, Label, Spinner, TextField, focus_mark, hbox, kbd_focus, rounded, vbox
 from .output_panel import OutputPanel
 from .thumbs import ThumbCache, draw_thumb
 
@@ -112,7 +112,30 @@ class Table(QWidget):
         self._fm = T.font(12, 400, mono=True)
         self.setMouseTracking(True)
         self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.TabFocus)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+    def keyPressEvent(self, e) -> None:  # noqa: N802
+        keys = [k for k, _c, _d in self.rows]
+        if not keys:
+            return super().keyPressEvent(e)
+        i = keys.index(self.value) if self.value in keys else 0
+        target = {Qt.Key_Up: i - 1, Qt.Key_Down: i + 1, Qt.Key_Home: 0, Qt.Key_End: len(keys) - 1}.get(e.key())
+        if target is None:
+            return super().keyPressEvent(e)
+        target = max(0, min(len(keys) - 1, target))
+        if keys[target] != self.value:
+            self.value = keys[target]
+            self.update()
+            self.changed.emit(self.value)
+
+    def focusInEvent(self, e) -> None:  # noqa: N802
+        self.update()
+        super().focusInEvent(e)
+
+    def focusOutEvent(self, e) -> None:  # noqa: N802
+        self.update()
+        super().focusOutEvent(e)
 
     def set_rows(self, rows: list[tuple[str, list[str], bool]], value: str) -> None:
         self.rows = rows
@@ -180,6 +203,8 @@ class Table(QWidget):
             sel = key == self.value
             if sel:
                 rounded(p, r, T.R_MD, T.FG)
+                if kbd_focus(self):
+                    focus_mark(p, r, T.BG, inset=12)
             elif i == self.hover:
                 rounded(p, r, T.R_MD, T.S2)
             for j, ((_t, _w, align), c) in enumerate(zip(self.columns, cols)):

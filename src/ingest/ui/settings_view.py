@@ -14,7 +14,8 @@ from ..core.encoders import HW_NAMES
 from ..core.engines import SPECS
 from ..core.settings import Settings
 from . import theme as T
-from .kit import (Button, Label, Segmented, Select, Stepper, TextField, Toggle, _Hover, hbox, mix, rounded, vbox)
+from .kit import (Button, Label, Segmented, Select, Stepper, TextField, Toggle, _Hover, focus_mark, hbox, kbd_focus,
+                  mix, rounded, vbox)
 from .setup_view import EngineRow
 
 SECTIONS = [("general", "General"), ("downloads", "Downloads"), ("conversion", "Conversion"),
@@ -52,8 +53,10 @@ class _IndexButton(QAbstractButton):
         elif self._hover.value > 0:
             rounded(p, QRectF(self.rect()), T.R_MD, mix(T.BG, T.S1, self._hover.value))
         p.setFont(self._f)
-        p.setPen(T.FG if self.isChecked() else mix(T.FG3, T.FG, self._hover.value))
+        p.setPen(T.FG if self.isChecked() or kbd_focus(self) else mix(T.FG3, T.FG, self._hover.value))
         p.drawText(QRectF(self.rect()).adjusted(12, 0, 0, 0), Qt.AlignVCenter | Qt.AlignLeft, self.text())
+        if kbd_focus(self):
+            focus_mark(p, QRectF(self.rect()), T.FG, inset=12)
 
 
 class _Group(QWidget):

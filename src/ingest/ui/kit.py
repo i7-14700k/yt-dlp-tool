@@ -46,6 +46,44 @@ def rounded(p: QPainter, rect: QRectF, r: float, color: QColor) -> None:
     p.drawRoundedRect(rect, r, r)
 
 
+class _KeyboardFocus(QObject):
+    """Notes on each widget whether its focus came from the keyboard.
+
+    Qt also hands focus to the first control when a page appears or a dialog
+    closes; that focus should not light anything up.
+    """
+
+    def eventFilter(self, obj, e) -> bool:  # noqa: N802
+        if e.type() == QEvent.FocusIn and isinstance(obj, QWidget):
+            obj.setProperty("_kbd_focus", e.reason() in (Qt.TabFocusReason, Qt.BacktabFocusReason))
+        return False
+
+
+_focus_tracker: _KeyboardFocus | None = None
+
+
+def track_keyboard_focus(app: QApplication) -> None:
+    global _focus_tracker
+    if _focus_tracker is None:
+        _focus_tracker = _KeyboardFocus(app)
+        app.installEventFilter(_focus_tracker)
+
+
+def kbd_focus(w: QWidget) -> bool:
+    return w.hasFocus() and bool(w.property("_kbd_focus"))
+
+
+def focus_mark(p: QPainter, rect: QRectF, color: QColor, inset: float = 8.0) -> None:
+    """Keyboard focus: a 2 px bar inside the bottom edge, like the active tab's.
+
+    Outlines are ruled out by the design and a one-step fill change is too faint
+    to find the focus by.
+    """
+    w = rect.width() - inset * 2
+    if w > 0:
+        rounded(p, QRectF(rect.left() + inset, rect.bottom() - 4, w, 2), 1, color)
+
+
 # ======================================================================= labels
 
 class Label(QLabel):
@@ -121,7 +159,7 @@ class Button(QAbstractButton):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         (base, hover, pressed), fg = self.STYLES.get(self.kind, self.STYLES["secondary"])
-        h = max(self._hover.value, 1.0 if self.hasFocus() else 0.0)
+        h = max(self._hover.value, 1.0 if kbd_focus(self) else 0.0)
         bg = mix(base, hover, h)
         if self.isDown():
             bg = pressed
@@ -136,6 +174,9 @@ class Button(QAbstractButton):
         rounded(p, r, T.R_MD, bg)
         p.setFont(self._font)
         p.setPen(fg)
+        if kbd_focus(self):
+            focus_mark(p, r, T.BG if bg == T.FG else T.FG, inset=min(12.0, r.width() / 4))
+            p.setPen(fg)
         if self.icon_name and not self.text():
             icons.draw(p, self.icon_name, QRectF(r.center().x() - 8, r.center().y() - 8, 16, 16), fg)
             return
@@ -174,11 +215,13 @@ class IconButton(QAbstractButton):
     def paintEvent(self, _e) -> None:  # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        h = max(self._hover.value, 1.0 if self.hasFocus() else 0.0)
+        h = max(self._hover.value, 1.0 if kbd_focus(self) else 0.0)
         bg = T.S4 if self.isDown() else mix(QColor(0, 0, 0, 0), T.S3, h)
         if self.isChecked():
             bg = T.FG
         rounded(p, QRectF(self.rect()), T.R_MD, bg)
+        if kbd_focus(self):
+            focus_mark(p, QRectF(self.rect()), T.BG if self.isChecked() else T.FG, inset=self.width() / 4)
         fg = T.BG if self.isChecked() else mix(self._color or T.FG2, T.FG, h)
         if not self.isEnabled():
             fg = T.FG4
@@ -309,7 +352,7 @@ class Segmented(QWidget):
     def paintEvent(self, _e) -> None:  # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        rounded(p, QRectF(self.rect()), T.R_MD, T.S2 if not self.hasFocus() else T.S3)
+        rounded(p, QRectF(self.rect()), T.R_MD, T.S2 if not kbd_focus(self) else T.S3)
         if self._ind.isNull():
             self._ind = self._segment_rect(self._index(self.value))
         p.setFont(self._font)
@@ -333,6 +376,8 @@ class Segmented(QWidget):
         for i, (_k, label) in enumerate(self.options):
             p.drawText(self._segment_rect(i), Qt.AlignCenter, label)
         p.restore()
+        if kbd_focus(self):
+            focus_mark(p, self._ind.adjusted(0, 1, 0, 1), T.BG, inset=min(10.0, self._ind.width() / 4))
 
 
 # ======================================================================= select
@@ -555,7 +600,7 @@ class Select(QAbstractButton):
     def paintEvent(self, _e) -> None:  # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        h = max(self._hover.value, 1.0 if self.hasFocus() else 0.0)
+        h = max(self._hover.value, 1.0 if kbd_focus(self) else 0.0)
         rounded(p, QRectF(self.rect()), T.R_MD, mix(T.S2, T.S3, h))
         p.setFont(self._font)
         p.setPen(T.FG if self.isEnabled() else T.FG4)
@@ -565,6 +610,8 @@ class Select(QAbstractButton):
         p.drawText(QRectF(10, 0, avail, self.height()), Qt.AlignVCenter | Qt.AlignLeft,
                    fm.elidedText(text, Qt.ElideRight, avail))
         icons.draw(p, "chevron-down", QRectF(self.width() - 26, self.height() / 2 - 8, 16, 16), T.FG2)
+        if kbd_focus(self):
+            focus_mark(p, QRectF(self.rect()), T.FG, inset=10)
 
 
 # ======================================================================= toggle
@@ -576,7 +623,7 @@ class Toggle(QAbstractButton):
         self.setChecked(checked)
         self.setCursor(Qt.PointingHandCursor)
         self.setFocusPolicy(Qt.TabFocus)
-        self.setFixedSize(36, 20)
+        self.setFixedSize(36, 28)  # 20 px track, centred, with room under it for the focus mark
         self._pos = 1.0 if checked else 0.0
         self._anim = QVariantAnimation(self)
         self._anim.setDuration(150)
@@ -616,11 +663,11 @@ class Toggle(QAbstractButton):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         t = self._pos
-        off_track = mix(T.S4, QColor("#353535"), max(self._hover.value, 1.0 if self.hasFocus() else 0))
+        off_track = mix(T.S4, QColor("#353535"), max(self._hover.value, 1.0 if kbd_focus(self) else 0))
         track = mix(off_track, T.FG, t)
         if not self.isEnabled():
             track = T.S3
-        r = QRectF(self.rect())
+        r = QRectF(0, 4, self.width(), 20)
         rounded(p, r, r.height() / 2, track)
         knob_d = r.height() - 6
         x = 3 + (r.width() - 6 - knob_d) * t
@@ -628,7 +675,9 @@ class Toggle(QAbstractButton):
         if not self.isEnabled():
             knob = T.FG4
         p.setBrush(knob)
-        p.drawEllipse(QRectF(x, 3, knob_d, knob_d))
+        p.drawEllipse(QRectF(x, r.top() + 3, knob_d, knob_d))
+        if kbd_focus(self):
+            rounded(p, QRectF(10, 26, self.width() - 20, 2), 1, T.FG)
 
 
 # ======================================================================= stepper

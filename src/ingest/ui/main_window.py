@@ -29,7 +29,8 @@ from .bridge import Bridge
 from .dialogs import Confirm, LogViewer
 from .engine_ops import EngineTasks, due_for_check
 from .inspect_view import InspectPage
-from .kit import Button, Label, Toast, _Hover, autohide_scrollbars, hbox, make_menu, mix, rounded, vbox
+from .kit import (Button, Label, Toast, _Hover, autohide_scrollbars, hbox, kbd_focus, make_menu, mix, rounded,
+                  track_keyboard_focus, vbox)
 from .library_view import LibraryPage
 from .output_panel import OutputPanel
 from .queue_view import QueueModel, QueueView
@@ -73,11 +74,16 @@ class NavTab(QAbstractButton):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         on = self.isChecked()
-        color = T.FG if on else mix(T.FG3, T.FG2, self._hover.value)
+        color = T.FG if on or kbd_focus(self) else mix(T.FG3, T.FG2, self._hover.value)
         p.setFont(self._f)
         p.setPen(color)
         tw = T.text_width(self._f, self.text())
         x = 10.0
+        if kbd_focus(self):
+            # The underline already means "this page"; focus gets a pill behind the label.
+            extra = (T.text_width(self._fc, self.count) + 6) if self.count else 0
+            rounded(p, QRectF(x - 8, self.height() / 2 - 14, tw + extra + 16, 26), T.R_MD, T.S3)
+            p.setPen(color)
         p.drawText(QRectF(x, 0, tw + 2, self.height()), Qt.AlignVCenter | Qt.AlignLeft, self.text())
         if self.count:
             p.setFont(self._fc)
@@ -193,6 +199,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self, store: SettingsStore, engines: Engines, library: Library) -> None:
         super().__init__()
+        track_keyboard_focus(QApplication.instance())
         self.store = store
         self.s = store.settings
         self.engines = engines

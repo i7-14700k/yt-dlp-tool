@@ -309,3 +309,30 @@ def test_suggest_cookie_fix_toast(qapp, window):
     job.error = {"kind": "bot_check", "title": "t", "hint": "h", "raw": ""}
     window._suggest_fix(job)
     assert window.toast.isVisible() and "signed in" in window.toast.text
+
+
+def test_focus_mark_only_for_keyboard_focus(qapp, window):
+    from PySide6.QtCore import Qt
+    from ingest.ui.kit import kbd_focus
+    window.activateWindow()
+    seg, sel = window.panel.res, window.panel.fps
+    seg.setFocus(Qt.OtherFocusReason)  # what Qt does when a page appears
+    pump(qapp, 0.05)
+    assert seg.hasFocus() and not kbd_focus(seg)
+    sel.setFocus(Qt.TabFocusReason)
+    pump(qapp, 0.05)
+    assert kbd_focus(sel) and not kbd_focus(seg)
+
+
+def test_format_table_keyboard(qapp):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from ingest.ui.inspect_view import Table
+    t = Table([("Resolution", 84, Qt.AlignLeft), ("", 0, Qt.AlignRight)])
+    t.set_rows([("auto", ["Automatic", ""], False), ("a", ["1080p", "copy"], False),
+                ("b", ["720p", "copy"], False)], "auto")
+    got = []
+    t.changed.connect(got.append)
+    for key in (Qt.Key_Down, Qt.Key_Down, Qt.Key_Down, Qt.Key_Home, Qt.Key_Up, Qt.Key_End):
+        QTest.keyClick(t, key)
+    assert got == ["a", "b", "auto", "b"]

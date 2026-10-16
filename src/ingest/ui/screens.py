@@ -134,19 +134,27 @@ def run_headless(app, store, engines, library, outdir: str | None, selftest: boo
         win.show_page("inspect")
         _pump(app, 0.6)
         win.grab().save(str(out / "09-playlist.png"))
-        # library with items
+        # library with items (demo rows, removed again so a real library isn't left with them)
         from ..core.library import Item
-        for i, jb in enumerate(demo_jobs(store.settings.output, thumbs)):
-            library.add(Item(id=f"demo{i}", title=jb.title, site=jb.site, uploader=jb.uploader, duration=jb.duration,
-                             profile="h264" if i != 3 else "wav", path=str(out / "01-queue-empty.png"),
-                             size=int(2e8 + i * 3e7), width=1920 if i != 3 else 0, height=1080 if i != 3 else 0,
-                             fps=29.97 if i != 3 else 0, vcodec="h264" if i != 3 else "",
-                             acodec="aac" if i != 3 else "pcm_s24le", thumb_url=jb.thumbnail,
-                             created=time.time() - i * 50000,
-                             report={"premiere": True, "after_effects": True}))
-        win.show_page("library")
-        _pump(app, 0.6)
-        win.grab().save(str(out / "10-library.png"))
+        demo_ids = []
+        try:
+            for i, jb in enumerate(demo_jobs(store.settings.output, thumbs)):
+                demo_ids.append(f"demo{i}")
+                library.add(Item(id=f"demo{i}", title=jb.title, site=jb.site, uploader=jb.uploader,
+                                 duration=jb.duration, profile="h264" if i != 3 else "wav",
+                                 path=str(out / "01-queue-empty.png"), size=int(2e8 + i * 3e7),
+                                 width=1920 if i != 3 else 0, height=1080 if i != 3 else 0,
+                                 fps=29.97 if i != 3 else 0, vcodec="h264" if i != 3 else "",
+                                 acodec="aac" if i != 3 else "pcm_s24le", thumb_url=jb.thumbnail,
+                                 created=time.time() - i * 50000,
+                                 report={"premiere": True, "after_effects": True}))
+            win.show_page("library")
+            _pump(app, 0.6)
+            win.grab().save(str(out / "10-library.png"))
+        finally:
+            for item_id in demo_ids:
+                library.remove(item_id)
+            win.library_page.reload()
         # popup, toast and dialog
         win.show_page("queue")
         _pump(app, 0.2)

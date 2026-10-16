@@ -85,3 +85,11 @@ Windows build on CI) checked against the table above.
 5. At 980 × 600 (a 1366 × 768 laptop at 125 %) the setup page squeezed its
    rows together; it scrolls now, and the window opens at most 92 % of the
    screen.
+6. Keyboard focus was a one-step fill change, about 1.1:1 against the
+   resting state, so Tab users couldn't find it. Focused controls now get a
+   2 px bar inside their bottom edge, the same mark as the active tab, black
+   on white controls and white on dark ones. It shows only when focus came
+   from Tab, not when Qt hands focus to the first control of a new page. The
+   Inspect format tables and the folder row became reachable by keyboard.
+   Two grey lines in a row in the Output panel (the HDR note, then a grey
+   field label) read as one paragraph; field labels are white now.
