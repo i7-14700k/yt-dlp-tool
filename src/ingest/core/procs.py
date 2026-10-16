@@ -14,6 +14,7 @@ from . import winapi
 
 IS_WINDOWS = sys.platform == "win32"
 CREATE_NO_WINDOW = 0x08000000
+CREATE_SUSPENDED = 0x00000004
 
 
 def child_env(extra: dict[str, str] | None = None) -> dict[str, str]:
@@ -68,11 +69,22 @@ class Proc:
         self.suspended = False
         self.stderr_lines: list[str] = []
         self._stderr_thread: threading.Thread | None = None
+        kw = popen_kwargs()
+        in_job = self._job is not None and self._job.valid
+        if in_job:
+            # Start suspended and join the job before running a single instruction: yt-dlp.exe's
+            # launcher starts its real process (and that one ffmpeg) at once, and a child that
+            # appeared before the assignment would escape the kill-the-whole-tree guarantee.
+            kw["creationflags"] = kw.get("creationflags", 0) | CREATE_SUSPENDED
         self._p = subprocess.Popen(
             args, cwd=cwd, env=env or child_env(), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT if merge_stderr else subprocess.PIPE, bufsize=0, **popen_kwargs())
-        if self._job is not None and self._job.valid:
-            self._job.assign(self._p.pid)
+            stderr=subprocess.STDOUT if merge_stderr else subprocess.PIPE, bufsize=0, **kw)
+        if in_job:
+            try:
+                self._job.assign(self._p.pid)
+            finally:
+                if not winapi.resume_pid(self._p.pid):
+                    winapi.resume_handle(int(getattr(self._p, "_handle", 0) or 0))
         if not merge_stderr:
             self._stderr_thread = threading.Thread(target=self._drain_stderr, args=(on_stderr,), daemon=True)
             self._stderr_thread.start()

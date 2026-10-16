@@ -177,6 +177,13 @@ def resume_pid(pid: int) -> bool:
         _kernel32.CloseHandle(proc)
 
 
+def resume_handle(handle: int) -> bool:
+    """Resume through a process handle we already hold (subprocess.Popen's has full access)."""
+    if not IS_WINDOWS or not handle:
+        return False
+    return _ntdll.NtResumeProcess(wintypes.HANDLE(handle)) == 0
+
+
 def set_hidden(path: os.PathLike | str) -> None:
     """Mark a file or folder hidden in Explorer (and in Premiere's Media Browser)."""
     if not IS_WINDOWS:
