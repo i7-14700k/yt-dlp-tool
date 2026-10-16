@@ -322,6 +322,11 @@ class MainWindow(QMainWindow):
         self.qm.schedule()
         if self.s.auto_update and not missing and due_for_check(self.s.last_update_check):
             QTimer.singleShot(4000, self._auto_update_check)
+        # Sites change faster than people restart apps; look again while Ingest stays open.
+        self._update_timer = QTimer(self)
+        self._update_timer.setInterval(3600 * 1000)
+        self._update_timer.timeout.connect(self._maybe_update)
+        self._update_timer.start()
         QGuiApplication.clipboard().dataChanged.connect(self._clipboard_changed)
         for area in self.findChildren(QAbstractScrollArea):
             autohide_scrollbars(area)
@@ -710,6 +715,11 @@ class MainWindow(QMainWindow):
 
     def _auto_update_check(self) -> None:
         self.tasks.check_updates(["ytdlp", "deno"])
+
+    def _maybe_update(self) -> None:
+        if (self.s.auto_update and not self.tasks.busy and not self.engines.missing_required()
+                and due_for_check(self.s.last_update_check)):
+            self._auto_update_check()
 
     def _locate_engine(self, key: str) -> None:
         path = pick_engine_file(self, key)
