@@ -224,3 +224,22 @@ def test_library_skip_holds_for_picked_entries_but_not_forced_ones(qm):
     (forced,) = qm.add_urls(["fake://video/again"], qm.store.settings.output, confirmed=True, force=True)
     wait(qm, lambda: forced.status == "done")
     assert not forced.skipped
+
+
+def test_unwritable_output_folder_says_so(qm, tmp_path):
+    blocker = tmp_path / "not-a-folder"
+    blocker.write_text("a file where the output folder should be")
+    from ingest.core.settings import copy_options
+    (job,) = qm.add_urls(["fake://video/nowhere"], copy_options(qm.store.settings.output, output_dir=str(blocker)))
+    wait(qm, settled(qm))
+    assert job.status == "failed"
+    assert job.error["title"] == "A file is in the way of the output folder", job.error
+
+
+def test_os_failure_kinds():
+    import errno
+    from ingest.core.errors import os_failure
+    assert os_failure(OSError(errno.ENOSPC, "No space left on device")).kind == "disk"
+    assert os_failure(PermissionError(errno.EACCES, "Permission denied", "C:/x")).kind == "permission"
+    assert os_failure(OSError(errno.ENAMETOOLONG, "File name too long")).kind == "path"
+    assert os_failure(FileNotFoundError(errno.ENOENT, "No such file", "Z:/share")).title.startswith("The output")

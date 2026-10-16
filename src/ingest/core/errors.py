@@ -140,6 +140,29 @@ def ffmpeg_failure(lines: list[str]) -> Failure:
     return Failure("convert", "Conversion failed", "Open the log for the ffmpeg output.", _last(lines))
 
 
+def os_failure(e: OSError) -> Failure:
+    """A file operation Ingest itself did (create the folder, move the result) failed."""
+    import errno
+    where = getattr(e, "filename", None) or ""
+    raw = f"{type(e).__name__}: {e}"
+    win = getattr(e, "winerror", None)
+    if e.errno == errno.ENOSPC or win in (39, 112):
+        return Failure("disk", "The disk is full", "Free space on the output drive, then retry.", raw)
+    if e.errno in (errno.EACCES, errno.EPERM) or win in (5, 32, 33):
+        return Failure("permission", "Can't write to the output folder",
+                       "Pick another folder under Save to, or close the app that has the file open.", raw)
+    if e.errno == errno.ENAMETOOLONG or win == 206:
+        return Failure("path", "The file path is too long for Windows",
+                       "Pick a shorter output folder or file name template.", raw)
+    if e.errno in (errno.EEXIST, errno.ENOTDIR) or win in (183, 267):
+        return Failure("path", "A file is in the way of the output folder",
+                       "Pick another folder under Save to, or move that file.", raw)
+    if e.errno == errno.ENOENT or win in (2, 3, 21, 53, 67):
+        return Failure("path", "The output folder isn't reachable",
+                       "Check that the drive or network share is connected, then retry.", raw)
+    return Failure("io", "Couldn't save the file", f"Check {where or 'the output folder'} and retry.", raw)
+
+
 def _last(lines: list[str]) -> str:
     for ln in reversed(lines):
         if ln.strip() and not ln.startswith(("frame=", "fps=", "progress=", "out_time", "speed=", "bitrate=",

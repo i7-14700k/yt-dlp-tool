@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import conform, naming, paths, sponsorblock, verify, winapi
-from .errors import Failure, classify, ffmpeg_failure
+from .errors import Failure, classify, ffmpeg_failure, os_failure
 from .library import Item, Library
 from .probe import MediaInfo, ProbeError, grid_fit_from_scan, grid_scan_args, measure_timing, probe
 from .procs import Proc
@@ -338,6 +338,11 @@ class Runner(threading.Thread):
         except JobFailed as e:
             f = e.failure
             self.log(f"!! {f.kind}: {f.title} | {f.raw}")
+            self._set(status=Status.FAILED.value, stage_text=f.title, speed=None, eta=None,
+                      error={"kind": f.kind, "title": f.title, "hint": f.hint, "raw": f.raw})
+        except OSError as e:  # our own file work: the output folder, moving the result
+            self.log(traceback.format_exc())
+            f = os_failure(e)
             self._set(status=Status.FAILED.value, stage_text=f.title, speed=None, eta=None,
                       error={"kind": f.kind, "title": f.title, "hint": f.hint, "raw": f.raw})
         except Exception as e:  # never let a thread die silently
