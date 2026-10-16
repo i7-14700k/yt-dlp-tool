@@ -70,8 +70,17 @@ class ThumbCache(QObject):
         if url.startswith(("http://", "https://")) and url not in self._pending:
             self._fetch(url)
         elif Path(url).is_file():
-            img = QImageReader(url).read()
-            if not img.isNull():
+            reader = QImageReader(url)
+            reader.setAutoTransform(True)
+            full = reader.size()
+            if full.isValid() and full.width() > THUMB_W * 2 and full.height() > THUMB_H * 2:
+                # Decode small: a 6000 px photo would otherwise stall the paint that asked for it.
+                k = max(THUMB_W * 2 / full.width(), THUMB_H * 2 / full.height())
+                reader.setScaledSize(QSize(max(1, round(full.width() * k)), max(1, round(full.height() * k))))
+            img = reader.read()
+            if img.isNull():
+                self._failed.add(url)
+            else:
                 pm = QPixmap.fromImage(cover(img, THUMB_W, THUMB_H))
                 self._remember(url, pm)
                 return pm

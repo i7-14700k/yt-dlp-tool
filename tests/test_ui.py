@@ -43,14 +43,15 @@ def pump(app, seconds=0.2):
         time.sleep(0.01)
 
 
-def wait_for(app, pred, timeout=60):
+def wait_for(app, pred, timeout=60, about=None):
     end = time.monotonic() + timeout
     while time.monotonic() < end:
         app.processEvents()
         if pred():
             return True
         time.sleep(0.02)
-    raise AssertionError("timed out")
+    state = about() if about else ""
+    raise AssertionError(f"timed out after {timeout} s {state}")
 
 
 @pytest.fixture
@@ -172,11 +173,12 @@ def test_pause_resume_from_row_actions(qapp, window):
     window._enqueue(["https://fake.test/video/slowrow?slow"])
     wait_for(qapp, lambda: window.model.rowCount() == 1)
     job = window.model.job(0)
-    wait_for(qapp, lambda: job.stage == "download" and job.dl_progress > 0.05, timeout=30)
+    about = lambda: repr((job.status, job.stage, job.stage_text, job.dl_progress, job.error))  # noqa: E731
+    wait_for(qapp, lambda: job.stage == "download" and job.dl_progress > 0.05, timeout=30, about=about)
     window.view.action.emit(job.id, "pause")
-    wait_for(qapp, lambda: job.status == "paused", timeout=30)
+    wait_for(qapp, lambda: job.status == "paused", timeout=30, about=about)
     window.view.action.emit(job.id, "resume")
-    wait_for(qapp, lambda: job.status == "done", timeout=90)
+    wait_for(qapp, lambda: job.status == "done", timeout=90, about=about)
 
 
 def test_output_panel_persists(qapp, window, tmp_path):

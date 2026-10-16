@@ -109,6 +109,7 @@ class QueueManager:
             acquire_convert=self._acquire_convert,
             release_convert=self._release_convert,
             nightly_ytdlp=self.nightly_ytdlp,
+            exited=self._on_exit,
         )
 
     def nightly_ytdlp(self) -> str:
@@ -140,6 +141,24 @@ class QueueManager:
                 self.events.finished(job)
             self.save_soon()
             self._schedule_later()
+
+    def _on_exit(self, job: Job, runner: Runner) -> None:
+        # The thread reports its final status a moment before it ends, and the
+        # UI can act in that gap (Resume on a just-paused row, Retry on a
+        # just-failed one). Forget the runner here so the job is schedulable,
+        # and apply a resume that arrived while it was winding down.
+        with self._lock:
+            if self.runners.get(job.id) is runner:
+                del self.runners[job.id]
+            requeue = job.id in self._requeue and job.status == Status.PAUSED.value
+            self._requeue.discard(job.id)
+            if requeue:
+                job.status = Status.QUEUED.value
+                job.stage_text = "Waiting"
+        if requeue:
+            self.events.updated(job, {"status": job.status, "stage_text": job.stage_text})
+            self.save_soon()
+        self.schedule()
 
     def _release_download(self, job: Job) -> None:
         with self._lock:

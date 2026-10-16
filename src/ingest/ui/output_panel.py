@@ -262,9 +262,14 @@ class OutputPanel(QScrollArea):
         self.quality = Segmented([("max", "Max"), ("high", "High"), ("balanced", "Balanced"), ("compact", "Small")],
                                  opts.quality)
         self.quality.changed.connect(lambda v: self._set("quality", v))
-        self.quality_label = Label("Quality when converting", 12, 400, T.FG3)
-        self.video.add(self.quality_label)
-        self.video.add(self.quality)
+        self.quality_label = Label("Quality when converting", 13, 400, T.FG)
+        quality_block = vbox(spacing=8)
+        quality_block.setContentsMargins(0, 6, 0, 0)  # the HDR note above is grey too; keep them apart
+        quality_block.addWidget(self.quality_label)
+        quality_block.addWidget(self.quality)
+        self.quality_box = QWidget()
+        self.quality_box.setLayout(quality_block)
+        self.video.add(self.quality_box)
         self.compatible = Toggle(opts.prefer_compatible)
         self.compatible.toggled.connect(lambda v: self._set("prefer_compatible", v))
         self.compatible_row = _toggle_row("Avoid re-encoding", self.compatible,
@@ -444,8 +449,7 @@ class OutputPanel(QScrollArea):
         self.audio_kind.setVisible(prof.kind == "audio")
         self.video.setVisible(prof.kind != "audio")
         encodes = o.profile in ("h264", "hevc")
-        self.quality.setVisible(encodes)
-        self.quality_label.setVisible(encodes)
+        self.quality_box.setVisible(encodes)
         self.compatible_row.setVisible(o.profile in ("h264", "hevc"))
         hdr_ok = o.profile in ("hevc", "prores") or (o.profile == "dnxhr" and o.dnxhr == "hqx")
         self.hdr_row.setVisible(prof.kind == "video" and hdr_ok)

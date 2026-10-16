@@ -110,7 +110,9 @@ class Library:
         if kind == "video":
             where.append("profile IN ('h264','prores','dnxhr','hevc','original') AND IFNULL(vcodec,'') != ''")
         elif kind == "audio":
-            where.append("(profile IN ('wav','aac','mp3') OR IFNULL(vcodec,'') = '')")
+            where.append("(profile IN ('wav','aac','mp3') OR (IFNULL(vcodec,'') = '' AND profile != 'image'))")
+        elif kind == "image":
+            where.append("profile = 'image'")
         if where:
             sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY created DESC LIMIT ?"

@@ -163,3 +163,49 @@ def test_persistence_roundtrip(qm, tmp_path):
     m2.rec = qm.rec
     wait(m2, lambda: all(j.status == "done" for j in m2.jobs), timeout=120)
     m2.shutdown(1)
+
+
+@pytest.fixture
+def images(ffmpeg, tmp_path_factory, monkeypatch):
+    d = tmp_path_factory.mktemp("images")
+    for ext in ("webp", "jpg"):
+        f = d / f"still.{ext}"
+        subprocess.run([ffmpeg, "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=s=800x450",
+                        "-frames:v", "1", str(f)], check=True)
+        monkeypatch.setenv(f"FAKE_MEDIA_{ext.upper()}", str(f))
+
+
+def test_images_land_in_the_library_as_images(qm, images):
+    qm.add_urls(["fake://image/photo.webp", "fake://image/scan.jpg"], qm.store.settings.output)
+    wait(qm, settled(qm))
+    assert all(j.status == "done" for j in qm.jobs), [j.error for j in qm.jobs]
+    outs = sorted(Path(j.outputs[0]).name for j in qm.jobs)
+    assert outs == ["photo.png", "scan.jpg"]  # WebP becomes PNG, JPEG is kept as served
+    for j in qm.jobs:
+        assert j.report["premiere"] is True
+    items = qm.library.list(kind="image")
+    assert len(items) == 2
+    assert {i.profile for i in items} == {"image"}
+    assert all((i.width, i.height) == (800, 450) for i in items)
+    assert qm.library.list(kind="audio") == []
+    assert qm.library.list(kind="video") == []
+
+
+def test_resume_pressed_while_the_pause_settles(qm):
+    # The paused status reaches the UI a moment before the runner thread ends;
+    # a Resume in that gap must not be lost.
+    pressed = []
+    deliver = qm.events.updated
+
+    def updated(job, fields):
+        deliver(job, fields)
+        if fields.get("status") == "paused" and not pressed:
+            pressed.append(job.id)
+            qm.resume(job.id)  # runs on the runner thread, so it is certainly still alive
+
+    qm.events.updated = updated
+    (job,) = qm.add_urls(["fake://video/gap?slow"], qm.store.settings.output)
+    wait(qm, lambda: job.stage == "download" and job.dl_progress > 0.05)
+    qm.pause(job.id)
+    wait(qm, lambda: job.status == "done", timeout=90)
+    assert pressed == [job.id]

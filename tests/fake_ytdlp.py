@@ -5,6 +5,7 @@
   fake://playlist/<n>              a flat playlist with n entries
   fake://needs-cookies/<name>      fails with a bot check unless --cookies is passed
   fake://gone/<name>               fails: video unavailable
+  fake://image/<name>.<ext>        a direct image link (format id = ext, file from FAKE_MEDIA_<EXT>)
 """
 import json
 import os
@@ -46,7 +47,11 @@ if kind == "gone":
     sys.exit(1)
 
 if "--dump-single-json" in args:
-    if kind == "playlist":
+    if kind == "image":
+        stem, _, ext = name.rpartition(".")
+        print(json.dumps({"id": stem, "title": stem, "extractor_key": "Generic", "extractor": "generic",
+                          "webpage_url": url, "format_id": ext, "ext": ext, "vcodec": "none", "acodec": "none"}))
+    elif kind == "playlist":
         n = int(name)
         print(json.dumps({"_type": "playlist", "id": "pl", "title": "Fake list", "entries": [
             {"_type": "url", "url": f"https://fake.test/video/e{i}", "title": f"Entry {i}", "duration": 2}
@@ -62,7 +67,7 @@ ids = args[args.index("-f") + 1].split(",")
 for fid in ids:
     src = os.environ["FAKE_MEDIA_" + fid.upper()]
     ext = os.path.splitext(src)[1]
-    dst = os.path.join(work, f"{name}.f{fid}{ext}")
+    dst = os.path.join(work, f"{name.rpartition('.')[0] or name}.f{fid}{ext}")
     steps = 40 if slow else 3
     for i in range(steps + 1):
         print("@@P %s %s" % (json.dumps(fid), json.dumps({

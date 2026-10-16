@@ -220,8 +220,8 @@ class SettingsPage(QWidget):
               "Each conversion uses most of a CPU or a GPU encoder session. 1 is right for most PCs.")
         g.row("Fragments at once", self._bind_stepper("fragments", 1, 16),
               "For HLS and DASH streams. Higher is faster on fast connections.")
-        g.row("Speed limit", self._bind_text("rate_limit", "No limit, or 5M, 800K", 180),
-              "Bytes per second, per download.")
+        g.row("Speed limit", self._bind_text("rate_limit", "No limit", 180),
+              "Bytes per second, per download, like 5M or 800K.")
         g.row("Links with a video and a playlist", self._bind_seg(
             "playlist_links", [("video", "Just the video"), ("playlist", "Whole playlist")], width=260))
         g.row("Review playlists longer than", self._bind_stepper("playlist_confirm", 5, 2000),

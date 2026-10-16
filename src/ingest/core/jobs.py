@@ -183,6 +183,7 @@ class Context:
     acquire_convert: Callable[[Job, "Runner"], bool]
     release_convert: Callable[[Job], None]
     nightly_ytdlp: Callable[[], str] = lambda: ""
+    exited: Callable[[Job, "Runner"], None] = lambda job, runner: None  # last thing the thread does
 
 
 _REDACT = re.compile(r"(://)[^/@\s]+@")
@@ -357,6 +358,10 @@ class Runner(threading.Thread):
                     self._log_fh.close()
                 except OSError:
                     pass
+            try:
+                self.ctx.exited(job, self)
+            except Exception:
+                pass
 
     # ------------------------------------------------------------ work folder
     def _prepare_work_dir(self) -> None:
@@ -957,6 +962,7 @@ class Runner(threading.Thread):
             folder = folder.parent
         folder.mkdir(parents=True, exist_ok=True)
         outputs: list[str] = []
+        entries: list[dict] = []  # one library row per file
         total = len(media) + len(images)
         done = 0
         for path in images:
@@ -980,6 +986,8 @@ class Runner(threading.Thread):
                     target = target.with_suffix(ext)
                     job.warnings.append(f"{src.name} kept as {ext[1:].upper()}, which Adobe apps can't open")
             outputs.append(str(target))
+            entries.append({"path": str(target), "profile": "image", "props": _file_props(tools.ffprobe, target),
+                            "report": _image_report(target)})
             done += 1
             self._set(cv_progress=done / total, force=False)
         for path in media:
@@ -998,15 +1006,25 @@ class Runner(threading.Thread):
             else:
                 self._run_ffmpeg(p, target)
             outputs.append(str(target))
+            entries.append({"path": str(target), "profile": p.profile, "props": _file_props(tools.ffprobe, target),
+                            "report": None, "summary": p.summary})
             done += 1
             self._set(cv_progress=done / total, plan_summary=p.summary)
         if not outputs:
             raise JobFailed(Failure("nothing", "Nothing usable was downloaded", "Open the log for details."))
-        self._finalize(Path(outputs[0]), [], None)
+        if entries and all(e["profile"] == "image" for e in entries):
+            fine = all(e["report"]["premiere"] for e in entries)
+            fmts = sorted({Path(e["path"]).suffix[1:].upper() for e in entries})
+            self._set(report={"checks": [{"name": "Image format", "ok": fine, "detail": ", ".join(fmts),
+                                          "critical": True}],
+                              "premiere": fine, "after_effects": fine, "notes": []},
+                      out_props=entries[0]["props"])
+        self._finalize(Path(outputs[0]), [], None, entries)
         return outputs
 
     # ------------------------------------------------------------ finalize
-    def _finalize(self, final: Path, inputs: list[str], p: conform.Plan | None) -> None:
+    def _finalize(self, final: Path, inputs: list[str], p: conform.Plan | None,
+                  entries: list[dict] | None = None) -> None:
         job = self.job
         opts = job.opts
         self._set(stage=Stage.FINALIZE.value, stage_text="Finishing")
@@ -1052,20 +1070,33 @@ class Runner(threading.Thread):
                             pass
         self._set(sidecars=sidecars)
         self._discard_work()
-        if self.ctx.library is not None and final.exists():
-            props = job.out_props or {}
+        if self.ctx.library is None:
+            return
+        if entries is None:
+            entries = [{"path": str(final), "profile": job.opts.profile if p is None else p.profile,
+                        "props": job.out_props or {}, "report": job.report, "summary": job.plan_summary}]
+        many = len(entries) > 1
+        for n, e in enumerate(entries):
+            path = Path(e["path"])
+            if not path.exists():
+                continue
+            props = e.get("props") or {}
             try:
                 self.ctx.library.add(Item(
-                    id=job.id, url=job.url, webpage_url=job.webpage_url, extractor=job.extractor,
-                    video_id=job.video_id, title=job.title, uploader=job.uploader, site=job.site,
-                    duration=job.duration, profile=job.opts.profile if p is None else p.profile, path=str(final),
-                    size=final.stat().st_size, width=int(props.get("width") or 0),
+                    id=job.id if n == 0 else f"{job.id}-{n}", url=job.url, webpage_url=job.webpage_url,
+                    extractor=job.extractor, video_id=job.video_id if n == 0 else f"{job.video_id}#{n}",
+                    title=f"{job.title or path.stem} ({n + 1})" if many else (job.title or path.stem),
+                    uploader=job.uploader, site=job.site,
+                    duration=float(props.get("duration") or 0.0) if many else job.duration,
+                    profile=e["profile"], path=str(path),
+                    size=path.stat().st_size, width=int(props.get("width") or 0),
                     height=int(props.get("height") or 0), fps=_fps_float(props.get("rate")),
                     vcodec=str(props.get("vcodec") or ""), acodec=str(props.get("acodec") or ""),
-                    thumb_url=job.thumbnail, report=job.report, summary=job.plan_summary,
-                    extra={"sidecars": sidecars, "warnings": job.warnings}))
-            except Exception as e:
-                self.log(f"library: {e}")
+                    thumb_url="" if e["profile"] == "image" else job.thumbnail, report=e.get("report"),
+                    summary=e.get("summary", ""),
+                    extra={"sidecars": sidecars if n == 0 else [], "warnings": job.warnings if n == 0 else []}))
+            except Exception as ex:
+                self.log(f"library: {ex}")
 
     _existing_target: Path = Path()
     _resume_text: str = "Converting"
@@ -1159,6 +1190,29 @@ def naming_title_from_url(url: str) -> str:
 def _fmt_from_name(name: str) -> str:
     m = re.search(r"\.f([^.]+)\.[^.]+$", name)
     return m.group(1) if m else "source"
+
+
+def _file_props(ffprobe: str, path: Path) -> dict:
+    """What the library shows for a file that didn't go through the conform pipeline."""
+    try:
+        mi = probe(ffprobe, path, timeout=20)
+    except Exception:
+        return {}
+    v, a = mi.video, mi.audio
+    out: dict = {"duration": mi.duration if mi.duration > 0.5 else 0.0}  # a still reports one frame's worth
+    if v is not None:
+        out.update(width=v.width, height=v.height, vcodec=v.codec)
+        if mi.duration > 0.5 and v.fps:
+            out["rate"] = f"{v.fps:.3f}"
+    if a is not None:
+        out["acodec"] = a.codec
+    return out
+
+
+def _image_report(path: Path) -> dict:
+    ok = path.suffix.lower() in ADOBE_IMAGE_OK
+    return {"checks": [{"name": "Image format", "ok": ok, "detail": path.suffix[1:].upper(), "critical": True}],
+            "premiere": ok, "after_effects": ok, "notes": []}
 
 
 def _fps_float(rate) -> float:

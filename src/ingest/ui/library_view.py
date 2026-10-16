@@ -106,7 +106,7 @@ class LibraryDelegate(QStyledItemDelegate):
         elif hovered:
             rounded(p, c, T.R_LG, T.S1)
         tr = QRectF(c.left() + 12, c.center().y() - 31.5, 112, 63)
-        url = it.thumb_url or ""
+        url = it.path if it.profile == "image" and exists else (it.thumb_url or "")
         draw_thumb(p, tr, self.thumbs.get(url) if url else None, T.R_SM, T.S2)
         if it.duration:
             p.setFont(T.font(10.5, 400, mono=True))
@@ -132,7 +132,10 @@ class LibraryDelegate(QStyledItemDelegate):
             spec = []
             prof = conform.PROFILES.get(it.profile)
             name = {"h264": "H.264", "hevc": "HEVC", "prores": "ProRes", "dnxhd": "DNxHR"}.get(it.vcodec, "")
-            if name:
+            if it.profile == "image":
+                dims = f"{it.width}×{it.height}" if it.width and it.height else ""
+                spec.append(" ".join(x for x in (Path(it.path).suffix[1:].upper(), dims) if x))
+            elif name:
                 spec.append(" ".join(x for x in (name, short_res(it.height, it.width), fps_label(it.fps)) if x))
             elif prof is not None:
                 spec.append(prof.label)
@@ -278,8 +281,8 @@ class LibraryPage(QWidget):
         self.count = Label("", 12, 400, T.FG3, tabular=True)
         self.search = TextField("", "Search titles, channels, sites, paths")
         self.search.setFixedWidth(320)
-        self.filter = Segmented([("all", "All"), ("video", "Video"), ("audio", "Audio")], "all")
-        self.filter.setFixedWidth(210)
+        self.filter = Segmented([("all", "All"), ("video", "Video"), ("audio", "Audio"), ("image", "Images")], "all")
+        self.filter.setFixedWidth(290)
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
         self._debounce.setInterval(180)

@@ -20,6 +20,15 @@ from .output_panel import OutputPanel
 from .thumbs import ThumbCache, draw_thumb
 
 
+def _format_bytes(f: dict | None, duration: float) -> float:
+    if not f:
+        return 0.0
+    size = f.get("filesize") or f.get("filesize_approx")
+    if size:
+        return float(size)
+    return float(f.get("tbr") or 0) * 125 * duration
+
+
 class Resolver(QObject):
     done = Signal(object, object)  # info dict | None, Failure | None
     status = Signal(str)
@@ -89,9 +98,12 @@ class Table(QWidget):
     changed = Signal(str)
     ROW = 32
 
-    def __init__(self, columns: list[tuple[str, float, int]], parent=None) -> None:
+    MIN_STRETCH = 150  # room for "1080p 24 H.264, copy"
+
+    def __init__(self, columns: list[tuple[str, float, int]], drop: tuple[int, ...] = (), parent=None) -> None:
         super().__init__(parent)
         self.columns = columns  # (title, width or 0 for stretch, alignment)
+        self.drop = drop  # column indexes to hide first when the table gets narrow
         self.rows: list[tuple[str, list[str], bool]] = []
         self.value = ""
         self.hover = -1
@@ -130,13 +142,25 @@ class Table(QWidget):
             self.update()
             self.changed.emit(self.value)
 
-    def _col_rects(self) -> list[QRectF]:
-        fixed = sum(w for _, w, _ in self.columns if w)
+    def _col_rects(self) -> list[QRectF | None]:
+        """One rect per column, None for columns hidden to make room."""
+        hidden: set[int] = set()
         stretch_n = sum(1 for _, w, _ in self.columns if not w) or 1
-        sw = max(60.0, (self.width() - 24 - fixed) / stretch_n)
+
+        def room() -> float:
+            fixed = sum(w for i, (_, w, _) in enumerate(self.columns) if w and i not in hidden)
+            return (self.width() - 24 - fixed) / stretch_n
+        for i in self.drop:
+            if room() >= self.MIN_STRETCH:
+                break
+            hidden.add(i)
+        sw = max(60.0, room())
         x = 12.0
-        out = []
-        for _, w, _ in self.columns:
+        out: list[QRectF | None] = []
+        for i, (_, w, _) in enumerate(self.columns):
+            if i in hidden:
+                out.append(None)
+                continue
             cw = w or sw
             out.append(QRectF(x, 0, cw, 0))
             x += cw
@@ -149,7 +173,8 @@ class Table(QWidget):
         p.setFont(self._fh)
         p.setPen(T.FG3)
         for (title, _w, align), c in zip(self.columns, cols):
-            p.drawText(QRectF(c.left(), 0, c.width() - 8, 20), align | Qt.AlignVCenter, title)
+            if c is not None:
+                p.drawText(QRectF(c.left(), 0, c.width() - 8, 20), align | Qt.AlignVCenter, title)
         for i, (key, cells, dim) in enumerate(self.rows):
             r = QRectF(0, 24 + i * self.ROW, self.width(), self.ROW - 2)
             sel = key == self.value
@@ -158,6 +183,8 @@ class Table(QWidget):
             elif i == self.hover:
                 rounded(p, r, T.R_MD, T.S2)
             for j, ((_t, _w, align), c) in enumerate(zip(self.columns, cols)):
+                if c is None:
+                    continue
                 text = cells[j] if j < len(cells) else ""
                 p.setFont(self._fm if j == len(cols) - 1 else self._f)
                 if sel:
@@ -453,14 +480,14 @@ class InspectPage(QWidget):
         head_text = vbox(self.v_title, self.v_meta, 6, self.v_pick, None, spacing=6)
         head = hbox(self.v_thumb, head_text, spacing=20)
 
-        self.vtable = Table([("Resolution", 96, Qt.AlignLeft), ("FPS", 64, Qt.AlignLeft),
-                             ("Codec", 96, Qt.AlignLeft), ("Range", 64, Qt.AlignLeft),
+        self.vtable = Table([("Resolution", 84, Qt.AlignLeft), ("FPS", 56, Qt.AlignLeft),
+                             ("Codec", 124, Qt.AlignLeft), ("Range", 64, Qt.AlignLeft),
                              ("Bitrate", 90, Qt.AlignRight), ("Size", 86, Qt.AlignRight),
-                             ("", 0, Qt.AlignRight)])
+                             ("", 0, Qt.AlignRight)], drop=(4, 3, 5))
         self.vtable.changed.connect(self._format_changed)
         self.atable = Table([("Codec", 96, Qt.AlignLeft), ("Bitrate", 90, Qt.AlignRight),
                              ("Rate", 86, Qt.AlignRight), ("", 28, Qt.AlignLeft), ("Language", 110, Qt.AlignLeft),
-                             ("Size", 86, Qt.AlignRight), ("", 0, Qt.AlignRight)])
+                             ("Size", 86, Qt.AlignRight), ("", 0, Qt.AlignRight)], drop=(3, 1, 2))
         self.atable.changed.connect(self._format_changed)
 
         self.trim_in = TextField("", "Start", mono=True)
@@ -635,13 +662,13 @@ class InspectPage(QWidget):
             fam = codec_family(f.get("vcodec"))
             size = f.get("filesize") or f.get("filesize_approx") or (
                 (f.get("tbr") or 0) * 125 * dur if f.get("tbr") and dur else 0)
-            act = self._action(fam, prof) if fam else "after download"
+            act = self._action(fam, prof) if fam else "checked later"
             combined = f.get("acodec") not in ("none",) and f.get("vcodec") is None or \
                 f.get("acodec") not in (None, "none")
             vrows.append((f["format_id"], [
                 short_res(f.get("height"), f.get("width")) or (f.get("format_note") or "?"),
                 fps_label(f.get("fps")) if f.get("fps") else "",
-                (conform.codec_name(fam) if fam else (f.get("ext") or "").upper() or "Unknown")
+                (conform.codec_name(fam) if fam else "Not listed")
                 + (" + audio" if combined else ""),
                 f.get("dynamic_range") or "SDR",
                 f"{f['tbr']:.0f} kb/s" if f.get("tbr") else "",
@@ -653,14 +680,14 @@ class InspectPage(QWidget):
             size = f.get("filesize") or f.get("filesize_approx") or (
                 (f.get("abr") or f.get("tbr") or 0) * 125 * dur if dur else 0)
             if not fam:
-                act = "after download"
+                act = "checked later"
             elif fam == "aac" and prof in ("h264", "hevc", "aac") and (
                     self.opts.audio_rate == "source" or (f.get("asr") or 0) == 48000):
                 act = "copy"
             else:
                 act = "convert"
             arows.append((f["format_id"], [
-                conform.codec_name(fam) if fam else (f.get("ext") or "").upper() or "Unknown",
+                conform.codec_name(fam) if fam else "Not listed",
                 f"{(f.get('abr') or f.get('tbr') or 0):.0f} kb/s",
                 f"{(f.get('asr') or 0) / 1000:g} kHz" if f.get("asr") else "", "",
                 f.get("language") or "", human_bytes(size) if size else "", act], False))
@@ -823,7 +850,14 @@ class InspectPage(QWidget):
             s = int(self.opts.resolution) / min(w, h)
             w, h = int(w * s), int(h * s)
         fps = float((v or {}).get("fps") or 30)
-        src = float(info.get("filesize_approx") or 0)
+        total = float(info.get("duration") or 0)
+        a = next((f for f in self._auds if f["format_id"] == self.atable.value), None) if self.atable.value != "auto" \
+            else next((f for f in (info.get("requested_formats") or []) if f.get("vcodec") == "none"), None)
+        src = _format_bytes(v, total) + (_format_bytes(a, total) if a is not None and a is not v else 0.0)
+        if not src:
+            src = float(info.get("filesize") or info.get("filesize_approx") or 0)
+        if total and dur < total:
+            src *= dur / total
         fam = codec_family((v or {}).get("vcodec"))
         size = conform.estimate_size(self.opts, w, h, fps, dur, src, copies_video=self._action(fam, self.opts.profile)
                                      == "copy" and src > 0)
