@@ -386,3 +386,16 @@ def test_second_launch_hands_its_links_to_the_running_instance(qapp):
     wait_for(qapp, lambda: any(m.get("urls") for m in got), timeout=10)
     assert [m["urls"] for m in got if m.get("urls")] == [links]
     server.close()
+
+
+def test_install_failure_stays_on_the_row(qapp, window):
+    from ingest.core.engines import EngineState
+    row = window.settings_page.engine_rows["deno"]
+    window.tasks.finished.emit("deno", False, "Couldn't reach github.com: timed out")
+    pump(qapp, 0.05)
+    window._on_engine_states({"deno": EngineState(key="deno", error="Not installed")})  # the refresh that follows
+    assert row.status.text() == "Install failed: Couldn't reach github.com: timed out"
+    assert row.action.text() == "Try again"
+    row.action.click()  # the next attempt clears it
+    window._on_engine_states({"deno": EngineState(key="deno", error="Not installed")})
+    assert "failed" not in row.status.text()

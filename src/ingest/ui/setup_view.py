@@ -51,18 +51,27 @@ class EngineRow(QWidget):
         self.name = Label(spec.name, 14, 600)
         self.purpose = Label(spec.purpose, 12, 400, T.FG2)
         self.version = Label("", 12, 400, T.FG3, mono=True)
-        self.status = Label("Checking…", 12, 400, T.FG3)
+        self.status = Label("Checking…", 12, 400, T.FG3, wrap=True)
         self.bar = MiniBar()
         self.bar.hide()
         self.action = Button("Install", "secondary")
-        self.action.clicked.connect(lambda: self.install.emit(self.key))
+        self.action.clicked.connect(self._on_install)
         self.locate_btn = Button("Locate", "ghost")
-        self.locate_btn.clicked.connect(lambda: self.locate.emit(self.key))
+        self.locate_btn.clicked.connect(self._on_locate)
+        self._failure = ""  # last install failure; stays on screen until the next action
         self.action.setEnabled(False)  # until the first state arrives
         left = vbox(hbox(self.name, self.version, None, spacing=10), self.purpose, self.status, self.bar,
                     spacing=4)
         lay = hbox(left, None, self.locate_btn, self.action, spacing=8, margins=(16, 14, 14, 14))
         self.setLayout(lay)
+
+    def _on_install(self) -> None:
+        self._failure = ""
+        self.install.emit(self.key)
+
+    def _on_locate(self) -> None:
+        self._failure = ""
+        self.locate.emit(self.key)
 
     def paintEvent(self, _e) -> None:  # noqa: N802
         p = QPainter(self)
@@ -75,13 +84,16 @@ class EngineRow(QWidget):
         if st.path:
             self.version.setText(st.version or "")
             src = SOURCE_LABEL.get(st.source, st.source)
+            if st.source == "custom":
+                src = f"Custom path: {st.path}"  # say which file, so it can be found or replaced
             if st.error:
                 self.status.setText(f"{src}. {st.error}")
             elif st.update:
                 self.status.setText(f"{src}. Update available: {st.latest}")
             else:
                 self.status.setText(src)
-            self.action.setText("Update" if st.update else ("Reinstall" if st.source == "managed" else "Install"))
+            self.action.setText("Update" if st.update else "Reinstall" if st.source == "managed"
+                                else "Use Ingest's copy" if st.source == "custom" else "Install")
             self.action.set_kind("primary" if st.update or st.extra.get("too_old") else "secondary")
         else:
             self.version.setText("")
@@ -90,6 +102,12 @@ class EngineRow(QWidget):
             self.action.set_kind("primary" if SPECS[self.key].required else "secondary")
         self.status.set_color(T.FG if (not st.path and SPECS[self.key].required) or st.update
                               or st.extra.get("too_old") else T.FG2)
+        if self._failure:
+            # The state refresh after an install must not wipe out why it failed.
+            self.status.setText(f"Install failed: {self._failure}")
+            self.status.set_color(T.FG)
+            self.action.setText("Try again")
+            self.action.set_kind("primary")
 
     def set_checking(self, name: str) -> None:
         self.status.setText(f"Checking {name}…")
@@ -109,7 +127,8 @@ class EngineRow(QWidget):
     def set_done(self, ok: bool, message: str) -> None:
         self.bar.hide()
         self.action.setEnabled(True)
-        self.status.setText(message if ok else f"Failed: {message}")
+        self._failure = "" if ok else message
+        self.status.setText(message if ok else f"Install failed: {message}")
         self.status.set_color(T.FG2 if ok else T.FG)
 
 
