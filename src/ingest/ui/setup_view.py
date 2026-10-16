@@ -81,13 +81,14 @@ class EngineRow(QWidget):
             else:
                 self.status.setText(src)
             self.action.setText("Update" if st.update else ("Reinstall" if st.source == "managed" else "Install"))
-            self.action.set_kind("primary" if st.update else "secondary")
+            self.action.set_kind("primary" if st.update or st.extra.get("too_old") else "secondary")
         else:
             self.version.setText("")
             self.status.setText("Not installed" + ("" if SPECS[self.key].required else ". Optional."))
             self.action.setText("Install")
             self.action.set_kind("primary" if SPECS[self.key].required else "secondary")
-        self.status.set_color(T.FG if (not st.path and SPECS[self.key].required) or st.update else T.FG2)
+        self.status.set_color(T.FG if (not st.path and SPECS[self.key].required) or st.update
+                              or st.extra.get("too_old") else T.FG2)
 
     def set_progress(self, phase: str, done: float, total: float) -> None:
         self.bar.show()

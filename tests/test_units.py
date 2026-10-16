@@ -176,3 +176,14 @@ def test_prefer_codec_when_only_the_reported_rate_differs():
     vp9 = fmt("303", "vp9", 1080, 60, 4000)
     info = {"formats": [fmt("137", "avc1.640028", 1080, 30, 4000), vp9, audio], "requested_formats": [vp9, audio]}
     assert prefer_codec(info, "h264") is None
+
+
+def test_outdated_engines_on_path():
+    from datetime import date
+    from ingest.core.engines import too_old
+    assert too_old("ffmpeg", "6.1.1")  # no setts prescale, older setparams
+    assert not too_old("ffmpeg", "7.1") and not too_old("ffmpeg", "master 2026-10-15")
+    today = date(2026, 10, 16)
+    assert not too_old("ytdlp", "2026.08.19", today)
+    assert too_old("ytdlp", "2025.06.30", today)
+    assert not too_old("ytdlp", "garbage", today) and not too_old("deno", "1.0.0")

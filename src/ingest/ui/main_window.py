@@ -694,11 +694,21 @@ class MainWindow(QMainWindow):
         self.setup_page.set_states(states)
         self.settings_page.set_engine_states(states)
         y = states.get("ytdlp")
-        missing = [k for k in ("ytdlp", "ffmpeg", "deno") if not states.get(k) or not states[k].path]
-        if missing:
+        problems = []
+        for k in ("ytdlp", "ffmpeg", "deno"):
+            st = states.get(k)
+            if not st or not st.path:
+                problems.append((k, "missing"))
+            elif st.extra.get("too_old"):
+                problems.append((k, "too old"))
+        if problems:
             from ..core.engines import SPECS
-            names = [SPECS[k].name for k in missing]
-            self.badge.set(f"{names[0]} missing" if len(names) == 1 else "Engines missing", True)
+            if len(problems) == 1:
+                k, word = problems[0]
+                self.badge.set(f"{SPECS[k].name} {word}", True)
+            else:
+                self.badge.set("Engines missing" if any(w == "missing" for _k, w in problems) else "Engines too old",
+                               True)
         elif any(st.update for st in states.values()):
             self.badge.set("Update available", True)
         else:

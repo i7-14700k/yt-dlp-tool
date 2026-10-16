@@ -27,6 +27,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+from datetime import date
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -233,6 +234,29 @@ def parse_version(key: str, output: str) -> str:
     return first[:32]
 
 
+def too_old(key: str, version: str, today: date | None = None) -> str:
+    """Why a copy found on PATH can't be relied on, or "" when it's fine.
+
+    Ingest keeps its own copies current, but one that came with something else
+    may be years behind: FFmpeg before 7 lacks filters the conversions use, and
+    a yt-dlp that's months old has usually lost a few sites.
+    """
+    if key == "ffmpeg":
+        m = re.match(r"(\d+)\.", version or "")
+        if m and int(m.group(1)) < 7:
+            return "Too old: Ingest needs FFmpeg 7 or newer"
+    elif key == "ytdlp":
+        m = re.match(r"(\d{4})\.(\d{2})\.(\d{2})", version or "")
+        if m:
+            try:
+                age = ((today or date.today()) - date(int(m.group(1)), int(m.group(2)), int(m.group(3)))).days
+            except ValueError:
+                return ""
+            if age > 120:
+                return f"{age // 30} months old: sites change faster than that"
+    return ""
+
+
 class Engines:
     """Thread-safe registry of engine locations and versions."""
 
@@ -322,6 +346,9 @@ class Engines:
         if key == "ffmpeg" and not self.tools().ffprobe:
             st.error = "ffprobe is missing next to ffmpeg"
         st.version = self.version(key, refresh)
+        if source == "system" and not st.error:
+            st.error = too_old(key, st.version)
+            st.extra["too_old"] = bool(st.error)
         st.ok = bool(st.version) and not st.error
         if not st.version and not st.error:
             st.error = "Doesn't run"
@@ -331,7 +358,15 @@ class Engines:
         return st
 
     def missing_required(self) -> list[str]:
-        return [k for k, s in SPECS.items() if s.required and not self.locate(k)[0]]
+        """Required engines with nothing usable: not found, or only an outdated copy on PATH."""
+        out = []
+        for k, s in SPECS.items():
+            if not s.required:
+                continue
+            path, source = self.locate(k)
+            if not path or (source == "system" and too_old(k, self.version(k))):
+                out.append(k)
+        return out
 
     # ---------------------------------------------------------- install / update
     def install(self, key: str, progress: ProgressCb | None = None, cancel: threading.Event | None = None) -> str:
