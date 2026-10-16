@@ -409,6 +409,7 @@ def parse_ranges(text: str, n: int) -> set[int]:
                 hi = int(b) if b else n
             except ValueError:
                 continue
+            lo, hi = min(lo, hi), max(lo, hi)  # "10-1" means the same entries as "1-10"
             out.update(range(max(1, lo), min(n, hi) + 1))
         elif part.isdigit():
             if 1 <= int(part) <= n:

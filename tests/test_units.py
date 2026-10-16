@@ -260,3 +260,12 @@ def test_check_engine_file_refuses_an_old_ffmpeg(tmp_path, ffmpeg, monkeypatch):
     monkeypatch.setattr(engines, "parse_version", lambda key, out: "6.1.1")
     use, why = engines.check_engine_file("ffmpeg", str(d))
     assert not use and "too old" in why
+
+
+def test_playlist_ranges():
+    from ingest.ui.inspect_view import parse_ranges
+    assert parse_ranges("1-3, 5", 12) == {1, 2, 3, 5}
+    assert parse_ranges("3-1", 12) == {1, 2, 3}
+    assert parse_ranges("10-", 12) == {10, 11, 12} and parse_ranges("-2", 12) == {1, 2}
+    assert parse_ranges("20-30, 0, a,b", 12) == set()
+    assert parse_ranges("", 12) == set()
