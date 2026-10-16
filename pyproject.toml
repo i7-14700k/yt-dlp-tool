@@ -1,0 +1,22 @@
+[project]
+name = "ingest"
+version = "1.0.0"
+description = "Download media from almost any site, ready for Premiere Pro and After Effects."
+requires-python = ">=3.11"
+dependencies = ["PySide6-Essentials>=6.8,<7"]
+
+[project.scripts]
+ingest = "ingest.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
