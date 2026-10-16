@@ -10,7 +10,7 @@ import threading
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QPoint, QRectF, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, QPoint, QRectF, QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import (QColor, QDesktopServices, QGuiApplication, QIcon, QKeySequence, QPainter, QPainterPath,
                            QPen, QShortcut)
 from PySide6.QtWidgets import (QAbstractButton, QAbstractScrollArea, QApplication, QMainWindow, QStackedWidget,
