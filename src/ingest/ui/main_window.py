@@ -358,10 +358,16 @@ class MainWindow(QMainWindow):
         sc("Ctrl+O", self.panel.choose_folder)
         sc("Ctrl+Shift+P", self.qm.pause_all)
         sc("Ctrl+Shift+R", self.qm.resume_all)
-        sc("Ctrl+A", lambda: self.view.selectAll() if self.stack.currentWidget() is self.queue_page
-           and not self.queue_page.url.field.hasFocus() else None)
+
+        # The next two belong to one page each. Window-wide, they'd swallow the keys everywhere
+        # else: Escape clearing the link field, Ctrl+A selecting in the Library.
+        def page_sc(seq, page, fn):
+            s = QShortcut(QKeySequence(seq), page)
+            s.setContext(Qt.WidgetWithChildrenShortcut)
+            s.activated.connect(fn)
+        page_sc("Ctrl+A", self.queue_page, self.view.selectAll)  # the link field keeps its own Ctrl+A
         # Back the way the page's own button goes, which also stops the yt-dlp still reading the page.
-        sc("Escape", lambda: self.inspect_page._back() if self.stack.currentWidget() is self.inspect_page else None)
+        page_sc("Escape", self.inspect_page, self.inspect_page._back)
 
     def keyPressEvent(self, e) -> None:  # noqa: N802
         # Ctrl+V anywhere that isn't a text field pastes links straight into the queue.
@@ -629,8 +635,7 @@ class MainWindow(QMainWindow):
         elif action == "reveal":
             reveal(it.path)
         elif action == "forget":
-            self.library.remove(item_id)
-            self.library_page.reload()
+            self._forget(self._library_targets(item_id))
         elif action == "more":
             m = make_menu(self)
             if it.exists:
@@ -643,10 +648,22 @@ class MainWindow(QMainWindow):
                                                                     confirmed=True, force=True),
                                                     self.show_page("queue")))
             m.addSeparator()
-            m.addAction("Remove from library", lambda: (self.library.remove(item_id), self.library_page.reload()))
+            targets = self._library_targets(item_id)
+            m.addAction("Remove from library" if len(targets) == 1 else f"Remove {len(targets)} from library",
+                        lambda: self._forget(targets))
             if it.exists:
                 m.addAction("Delete file", lambda: self._delete_library_file(it))
             show_menu(m, pos)
+
+    def _library_targets(self, item_id: str) -> list[str]:
+        """The whole selection when the item is part of it, as in Explorer; otherwise just the item."""
+        ids = [it.id for it in self.library_page.view.selected_items()]
+        return ids if item_id in ids else [item_id]
+
+    def _forget(self, ids: list[str]) -> None:
+        for i in ids:
+            self.library.remove(i)
+        self.library_page.reload()
 
     def _delete_library_file(self, it) -> None:
         if Confirm.ask(self, "Delete this file?", it.path, ok="Delete", cancel="Keep"):

@@ -105,8 +105,11 @@ class Library:
         sql = f"SELECT {','.join(_COLS)} FROM items"
         where, args = [], []
         if query:
-            where.append("(title LIKE ? OR uploader LIKE ? OR site LIKE ? OR path LIKE ? OR url LIKE ?)")
-            args += [f"%{query}%"] * 5
+            # Typed % and _ are searched for, not wildcards ("100%", "my_clip").
+            q = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            cols = ("title", "uploader", "site", "path", "url")
+            where.append("(" + " OR ".join(f"{c} LIKE ? ESCAPE '\\'" for c in cols) + ")")
+            args += [f"%{q}%"] * len(cols)
         if kind == "video":
             where.append("profile IN ('h264','prores','dnxhr','hevc','original') AND IFNULL(vcodec,'') != ''")
         elif kind == "audio":

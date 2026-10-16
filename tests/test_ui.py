@@ -447,3 +447,81 @@ def test_switching_channel_installs_that_build(qapp, window, monkeypatch):
     window.s.channel = "stable"
     window._settings_changed()
     assert installs == [["ytdlp"]] and "PATH" in toasts[-1]
+
+
+def test_escape_clears_link_field(qapp, window):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    field = window.queue_page.url.field
+    window.activateWindow()
+    field.setFocus()
+    QTest.keyClicks(field, "https://x.example/a")
+    QTest.keyClick(field, Qt.Key_Escape)
+    pump(qapp, 0.1)
+    assert field.text() == ""
+
+
+def test_escape_leaves_inspect(qapp, window):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    window._submit(["https://fake.test/video/inspect-me"], True)
+    page = window.inspect_page
+    assert window.stack.currentWidget() is page
+    page.setFocus()
+    pump(qapp, 0.1)
+    QTest.keyClick(window.focusWidget() or page, Qt.Key_Escape)
+    pump(qapp, 0.2)
+    assert window.stack.currentWidget() is window.queue_page
+
+
+def test_library_ctrl_a(qapp, window):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    from ingest.core.library import Item
+    for i in range(3):
+        window.library.add(Item(id=f"i{i}", title=f"T{i}", path=f"/nope/{i}.mp4", profile="h264", vcodec="h264"))
+    window.show_page("library")
+    pump(qapp, 0.2)
+    view = window.library_page.view
+    assert window.library_page.model.rowCount() == 3
+    window.activateWindow()
+    view.setFocus()
+    QTest.keyClick(view, Qt.Key_A, Qt.ControlModifier)
+    pump(qapp, 0.1)
+    assert len(view.selected_items()) == 3
+
+
+def test_library_delete_forgets_selection(qapp, window):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    from ingest.core.library import Item
+    for i in range(3):
+        window.library.add(Item(id=f"i{i}", title=f"T{i}", path=f"/nope/{i}.mp4", profile="h264", vcodec="h264"))
+    window.show_page("library")
+    pump(qapp, 0.2)
+    view = window.library_page.view
+    window.activateWindow()
+    view.setFocus()
+    QTest.keyClick(view, Qt.Key_A, Qt.ControlModifier)
+    QTest.keyClick(view, Qt.Key_Delete)
+    pump(qapp, 0.1)
+    assert window.library.count() == 0 and window.library_page.model.rowCount() == 0
+
+
+def test_queue_ctrl_a(qapp, window):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    window.qm.pause_all()
+    window._enqueue(["https://a.example/v1", "https://b.example/v2"])
+    pump(qapp, 0.2)
+    field = window.queue_page.url.field
+    window.activateWindow()
+    field.setFocus()
+    QTest.keyClicks(field, "abc")
+    QTest.keyClick(field, Qt.Key_A, Qt.ControlModifier)
+    assert field.selectedText() == "abc" and not window.view.selectionModel().selectedRows()
+    window.view.setFocus()
+    QTest.keyClick(window.view, Qt.Key_A, Qt.ControlModifier)
+    assert len(window.view.selectionModel().selectedRows()) == 2

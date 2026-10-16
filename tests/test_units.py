@@ -292,3 +292,24 @@ def test_network_from_settings_normalizes():
     s.proxy, s.rate_limit, s.geo_country = "10.0.0.1:3128", "5 MB/s", "Germany"
     n = Network.from_settings(s, "")
     assert (n.proxy, n.rate_limit, n.geo_country) == ("http://10.0.0.1:3128", "5M", "")
+
+
+def test_library_search_is_literal(tmp_path):
+    from ingest.core.library import Item, Library
+    lib = Library(tmp_path / "lib.sqlite3")
+    lib.add(Item(id="a", title="Score 100% live"))
+    lib.add(Item(id="b", title="Score 1000 live"))
+    lib.add(Item(id="c", title="my_clip"))
+    lib.add(Item(id="d", title="myxclip"))
+    lib.add(Item(id="e", title=r"C:\new"))
+    assert [i.id for i in lib.list("100%")] == ["a"]
+    assert [i.id for i in lib.list("my_clip")] == ["c"]
+    assert [i.id for i in lib.list("\\new")] == ["e"]
+    assert len(lib.list("clip")) == 2
+    lib.close()
+
+
+def test_year_falls_back_to_release_date():
+    from ingest.core.naming import context_from_info
+    ctx = context_from_info({"title": "t", "release_date": "20240102"})
+    assert ctx["date"] == "2024-01-02" and ctx["year"] == "2024"

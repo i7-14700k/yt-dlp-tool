@@ -106,7 +106,7 @@ def context_from_info(info: dict, extra: dict | None = None) -> dict:
         "id": info.get("id") or "",
         "site": info.get("extractor_key") or info.get("extractor") or "",
         "date": _date(info.get("upload_date") or info.get("release_date")),
-        "year": (info.get("upload_date") or "")[:4],
+        "year": (info.get("upload_date") or info.get("release_date") or "")[:4],
         "playlist": info.get("playlist_title") or info.get("playlist") or "",
         "index": info.get("playlist_index") or "",
         "today": datetime.now().strftime("%Y-%m-%d"),
