@@ -21,17 +21,65 @@ def _server_name() -> str:
     return f"{APP_NAME}-{user}-v1".replace(" ", "_")
 
 
-def _send_to_running(urls: list[str]) -> bool:
+def _send_to_running(urls: list[str], name: str | None = None) -> bool:
     from PySide6.QtNetwork import QLocalSocket
     sock = QLocalSocket()
-    sock.connectToServer(_server_name())
-    if not sock.waitForConnected(400):
+    sock.connectToServer(name or _server_name())
+    if not sock.waitForConnected(1000):
         return False
     sock.write(json.dumps({"urls": urls, "show": True}).encode("utf-8"))
     sock.flush()
-    sock.waitForBytesWritten(1000)
+    sock.waitForBytesWritten(2000)
     sock.disconnectFromServer()
+    if sock.state() != QLocalSocket.UnconnectedState:
+        sock.waitForDisconnected(1000)
     return True
+
+
+def claim_instance(app, name: str | None = None):
+    """Become the one running Ingest, or return None if another one is already up.
+
+    Called before the window is built: building it takes a moment, and a second
+    launch in that gap must find this instance listening instead of starting a
+    second Ingest on the same queue and library.
+    """
+    from PySide6.QtNetwork import QLocalServer
+    name = name or _server_name()
+    server = QLocalServer(app)
+    if server.listen(name):
+        return server
+    # Either another instance is listening, or a crashed one left its socket behind.
+    if _send_to_running([], name):
+        return None
+    QLocalServer.removeServer(name)
+    server.listen(name)  # if even this fails, run anyway: one window beats none
+    return server
+
+
+def serve_instance(server, on_message) -> None:
+    """Hand each message from a later launch (its links) to on_message, however it arrives."""
+    def incoming():
+        while server.hasPendingConnections():
+            conn = server.nextPendingConnection()
+            state = {"buf": bytearray(), "done": False}
+
+            def take(conn=conn, state=state):
+                if state["done"]:
+                    return
+                state["buf"].extend(bytes(conn.readAll()))
+                try:
+                    data = json.loads(state["buf"].decode("utf-8") or "null")
+                except ValueError:
+                    return  # the rest is still on its way
+                if data is None:
+                    return
+                state["done"] = True
+                on_message(data if isinstance(data, dict) else {})
+                conn.disconnectFromServer()
+            conn.readyRead.connect(take)
+            conn.disconnected.connect(take)
+            take()  # whatever arrived before the signals were connected
+    server.newConnection.connect(incoming)
 
 
 def _install_excepthook(log_dir: Path) -> None:
@@ -82,8 +130,14 @@ def main(argv: list[str] | None = None) -> int:
 
     urls = extract_urls(" ".join(expand_protocol_links(args.urls)))
     headless = bool(args.screenshot or args.selftest)
-    if not headless and _send_to_running(urls):
-        return 0
+    server = None
+    if not headless:
+        if _send_to_running(urls):
+            return 0
+        server = claim_instance(app)
+        if server is None:  # lost a race with another launch; it has the window
+            _send_to_running(urls)
+            return 0
 
     from .ui import theme
     theme.load_fonts()
@@ -111,29 +165,15 @@ def main(argv: list[str] | None = None) -> int:
     if paths.is_frozen() and store.settings.browser_links:
         winapi.register_protocol(sys.executable)
 
-    from PySide6.QtNetwork import QLocalServer
-    server = QLocalServer(app)
-    QLocalServer.removeServer(_server_name())
-    if server.listen(_server_name()):
-        def incoming():
-            conn = server.nextPendingConnection()
-            if conn is None:
-                return
-
-            def read():
-                try:
-                    data = json.loads(bytes(conn.readAll()).decode("utf-8") or "{}")
-                except ValueError:
-                    data = {}
-                win.showNormal()
-                win.raise_()
-                win.activateWindow()
-                if data.get("urls"):
-                    win.show_page("queue")
-                    win._enqueue(list(data["urls"]))
-                conn.disconnectFromServer()
-            conn.readyRead.connect(read)
-        server.newConnection.connect(incoming)
+    def from_other_launch(data: dict) -> None:
+        win.showNormal()
+        win.raise_()
+        win.activateWindow()
+        if data.get("urls"):
+            win.show_page("queue")
+            win._enqueue([str(u) for u in data["urls"]])
+    if server is not None:
+        serve_instance(server, from_other_launch)
 
     win.show()
     if urls:

@@ -370,3 +370,19 @@ def test_reset_settings_keeps_pages_bound_to_live_settings(qapp, window, tmp_pat
     window.panel._on_profile("dnxhr")
     wait_for(qapp, lambda: json.loads((tmp_path / "settings.json").read_text())["output"]["profile"] == "dnxhr",
              timeout=5)
+
+
+def test_second_launch_hands_its_links_to_the_running_instance(qapp):
+    import uuid
+    from ingest.app import _send_to_running, claim_instance, serve_instance
+    name = f"ingest-test-{uuid.uuid4().hex[:8]}"
+    server = claim_instance(qapp, name)
+    assert server is not None
+    got = []
+    serve_instance(server, got.append)
+    assert claim_instance(qapp, name) is None  # a second Ingest backs off
+    links = [f"https://example.com/watch?v={i:04d}&list=PL{'x' * 40}" for i in range(400)]  # well over one read
+    assert _send_to_running(links, name)
+    wait_for(qapp, lambda: any(m.get("urls") for m in got), timeout=10)
+    assert [m["urls"] for m in got if m.get("urls")] == [links]
+    server.close()
