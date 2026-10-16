@@ -64,3 +64,24 @@ Native caption kept for snap layouts and accessibility, painted black through
 DWM on Windows 11 (caption color, text color, border color set to none). Taskbar
 button shows aggregate progress. Finished items drag straight into Premiere's
 project panel.
+
+## Review rounds
+
+Each round was a full set of screenshots (Linux offscreen and the frozen
+Windows build on CI) checked against the table above.
+
+1. Page headings repeated the active tab ("Queue" under the Queue tab), the
+   label-repeats-heading tell. Removed. Paused and failed rows said the same
+   thing twice (status text and the right column); the right column now holds
+   either the number or the row's actions. A disabled HDR control with no
+   explanation became one sentence about tone-mapping.
+2. Scrollbars read as thin vertical rules, which is an outline by another
+   name. They now stay invisible until the area is scrolled or hovered.
+3. The Inspect page had empty space beside the thumbnail. It now states the
+   plan in words: what was picked and whether it will be copied or converted.
+4. Dropdowns used one row height for every option; rows now size to their
+   content. Dialogs got a dimmed backdrop rather than a drop shadow. The
+   progress percent sets its sign smaller on the same baseline.
+5. At 980 × 600 (a 1366 × 768 laptop at 125 %) the setup page squeezed its
+   rows together; it scrolls now, and the window opens at most 92 % of the
+   screen.
