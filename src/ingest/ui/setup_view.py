@@ -7,7 +7,7 @@ from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QFileDialog, QScrollArea, QWidget
 
 from ..core import paths
-from ..core.engines import SPECS, EngineState
+from ..core.engines import SETUP_KEYS, SPECS, EngineState
 from ..core.util import human_bytes
 from . import theme as T
 from .kit import Button, Label, Toggle, hbox, rounded, vbox
@@ -118,7 +118,7 @@ class SetupPage(QWidget):
             "yt-dlp read YouTube. They come from each project's official GitHub releases, are checked against "
             "the published SHA-256 sums, and live in " + str(paths.engines_dir()) + ".", 13, 400, T.FG2, wrap=True)
         body.setMaximumWidth(620)
-        self.rows = {k: EngineRow(k) for k in SPECS}
+        self.rows = {k: EngineRow(k) for k in SETUP_KEYS}
         for r in self.rows.values():
             r.install.connect(lambda k: self.install_requested.emit([k]))
             r.locate.connect(self.locate_requested.emit)

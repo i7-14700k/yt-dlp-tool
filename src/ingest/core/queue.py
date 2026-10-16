@@ -59,6 +59,7 @@ class QueueManager:
         self._schedule_pending = False
         self._closing = False
         self._requeue: set[str] = set()
+        self._nightly_lock = threading.Lock()
 
     # ---------------------------------------------------------------- capabilities
     def start_capability_probe(self) -> None:
@@ -107,7 +108,20 @@ class QueueManager:
             release_download=self._release_download,
             acquire_convert=self._acquire_convert,
             release_convert=self._release_convert,
+            nightly_ytdlp=self.nightly_ytdlp,
         )
+
+    def nightly_ytdlp(self) -> str:
+        """Path to a yt-dlp nightly no more than a day old, installing it on first use."""
+        with self._nightly_lock:
+            path, _src = self.engines.locate("ytdlp_nightly")
+            fresh = path and time.time() - float(self.engines.manifest("ytdlp_nightly").get("installed", 0)) < 86400
+            if fresh:
+                return path
+            try:
+                return self.engines.install("ytdlp_nightly")
+            except Exception:
+                return path or ""
 
     def _on_update(self, job: Job, fields: dict) -> None:
         st = fields.get("status")
@@ -432,6 +446,37 @@ class QueueManager:
             self.jobs = jobs
         if jobs:
             self.events.added(jobs, 0)
+        threading.Thread(target=self.cleanup_orphans, name="cleanup", daemon=True).start()
+
+    def cleanup_orphans(self, max_age_days: float = 2.0) -> int:
+        """Remove work folders that no queued job owns (left by a crash or a lost queue file)."""
+        import shutil
+        owned = {j.id for j in self.jobs}
+        roots = [paths.work_root()]
+        s = self.store.settings
+        for d in [s.output.output_dir or str(paths.default_download_dir()), *s.recent_dirs]:
+            if d:
+                roots.append(Path(d) / ".ingest-work")
+        removed = 0
+        cutoff = time.time() - max_age_days * 86400
+        for root in roots:
+            try:
+                children = list(root.iterdir()) if root.is_dir() else []
+            except OSError:
+                continue
+            for child in children:
+                try:
+                    if child.is_dir() and child.name not in owned and child.stat().st_mtime < cutoff:
+                        shutil.rmtree(child, ignore_errors=True)
+                        removed += 1
+                except OSError:
+                    continue
+            try:
+                if root.name == ".ingest-work" and root.is_dir() and not any(root.iterdir()):
+                    root.rmdir()
+            except OSError:
+                pass
+        return removed
 
     def shutdown(self, timeout: float = 4.0) -> None:
         """Stop everything quickly. Partial downloads stay on disk and resume next launch."""

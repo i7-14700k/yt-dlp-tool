@@ -106,6 +106,7 @@ class Settings:
     path_deno: str = ""
     path_gallerydl: str = ""
     gallery_fallback: bool = True
+    nightly_fallback: bool = True  # retry broken extractors with yt-dlp nightly
     last_update_check: float = 0.0
     # App
     clipboard_suggest: bool = True

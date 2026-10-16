@@ -183,10 +183,11 @@ def _target_rate(v: Stream, opts: OutputOptions, timing: Timing | None) -> Fract
                  "59.94": Fraction(60000, 1001)}
         return fixed.get(opts.fps) or Fraction(opts.fps)
     measured = None
-    if timing and timing.vfr:
-        # VFR: average rate is what the clip plays at overall.
-        measured = v.avg_rate or (timing.measured_rate if timing else None)
-    src = measured or v.avg_rate or v.r_rate or (timing.measured_rate if timing else None) or Fraction(30)
+    if timing and timing.vfr and timing.measured_rate:
+        # Variable rate: the most common frame interval is the rate the material was shot at.
+        # The average is skewed by drops and splices (a 23.976 intro on a 29.97 talk averages 27.97).
+        measured = timing.measured_rate
+    src = measured or v.avg_rate or v.r_rate or Fraction(30)
     rate = snap_rate(src) or Fraction(30)
     if opts.max_fps.isdigit() and float(rate) > int(opts.max_fps) + 0.5:
         cap = int(opts.max_fps)
@@ -231,6 +232,35 @@ def _setparams(hdr_keep: bool, src: Stream | None) -> str:
         trc = src.color_transfer if src.color_transfer in ("smpte2084", "arib-std-b67") else "smpte2084"
         return f"setparams=color_primaries=bt2020:color_trc={trc}:colorspace=bt2020nc:range=tv"
     return "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv"
+
+
+# How much more bitrate H.264/HEVC needs than the source codec for the same picture.
+_EFFICIENCY = {"h264": 1.4, "hevc": 2.0, "vp9": 2.2, "av1": 2.6, "vp8": 1.6, "mpeg4": 1.3, "mpeg2video": 1.0}
+
+
+def _bitrate_cap(fam: str, v: Stream, vin: MediaInfo, target: str, out_dims: tuple[int, int],
+                 rate: Fraction) -> list[str]:
+    """A ceiling so re-encoding never balloons a file far past what the source held.
+
+    CRF 17 on a 1 Mb/s 480p stream lands near 2 Mb/s: twice the size for no visible gain.
+    Only CRF/CQ encoders take a ceiling cleanly (x264, x265, NVENC).
+    """
+    if fam not in ("x264", "x265", "nvenc"):
+        return []
+    src = v.bitrate
+    if not src and vin.bitrate and vin.duration:
+        audio = sum(s.bitrate or 0 for s in vin.streams if s.kind == "audio")
+        src = max(0, vin.bitrate - audio)
+    if not src or src < 50_000:
+        return []
+    factor = _EFFICIENCY.get(v.codec, 1.6) * (0.65 if target == "hevc" else 1.0)
+    # Scale for resolution and frame-rate changes made during the conversion.
+    src_px = max(1, v.width * v.height) * (v.fps or float(rate))
+    out_px = max(1, out_dims[0] * out_dims[1]) * float(rate)
+    ceiling = src * factor * min(1.0, out_px / src_px) if src_px else src * factor
+    ceiling = max(ceiling, 1_500_000 if out_dims[1] >= 720 else 800_000)
+    kbps = int(ceiling / 1000)
+    return ["-maxrate", f"{kbps}k", "-bufsize", f"{kbps * 2}k"]
 
 
 def _trimmed_length(trim: tuple[float, float], segments) -> float:
@@ -610,7 +640,9 @@ def _plan_video(inputs, video, audio, profile: Profile, opts: OutputOptions, cap
             if resized or matrix_in != "bt709" or v.full_range:
                 filters.append(f"scale={out_w}:{out_h}:flags=lanczos:{color}:{rng}")
         filters.append("setsar=1")
-        filters.append(f"fps=fps={rate_str(rate)}:start_time=0")
+        # Plain fps conversion. start_time=0 looked tidier but duplicates frames on mixed-rate
+        # sources (TED's 23.976 intro inside a 29.97 talk), so the offset is left to the muxer.
+        filters.append(f"fps=fps={rate_str(rate)}")
         if segments:
             filters.append(f"select='{_sponsor_expr(segments)}',setpts=N/FRAME_RATE/TB")
 
@@ -620,6 +652,7 @@ def _plan_video(inputs, video, audio, profile: Profile, opts: OutputOptions, cap
             if note:
                 warnings.append(note)
             encoder, venc, pix_fmt = _h264_args(fam, opts, gop)
+            venc += _bitrate_cap(fam, v, vin, "h264", (out_w, out_h), rate)
             if fam != "x264":
                 fallback_family = "x264"
             step_v = f"Encode H.264 {min(out_w, out_h)}p {fps_label(float(rate))}"
@@ -631,6 +664,7 @@ def _plan_video(inputs, video, audio, profile: Profile, opts: OutputOptions, cap
             if fam == "x265" and not caps.libx265:
                 raise PlanError("This ffmpeg build has no HEVC encoder.")
             encoder, venc, pix_fmt = _hevc_args(fam, opts, gop, hdr_keep, v)
+            venc += _bitrate_cap(fam, v, vin, "hevc", (out_w, out_h), rate)
             if fam != "x265":
                 fallback_family = "x265"
             step_v = f"Encode HEVC 10-bit {min(out_w, out_h)}p {fps_label(float(rate))}"

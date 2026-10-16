@@ -109,6 +109,35 @@ def test_vfr_h264_becomes_cfr(ffmpeg, ffprobe, tmp_path):
     assert not measure_timing(ffprobe, mi.path).vfr
 
 
+def test_mixed_rate_splice_stays_constant(ffmpeg, ffprobe, tmp_path):
+    """TED-style: a 23.976 intro spliced onto a 29.97 talk. Must come out strictly constant, no extra frames."""
+    a = make(ffmpeg, tmp_path / "a.mp4", *lavfi_video("testsrc2=s=640x360:r=24000/1001:d=3"), "-c:v", "libx264",
+             "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-video_track_timescale", "30000")
+    b = make(ffmpeg, tmp_path / "b.mp4", *lavfi_video("testsrc2=s=640x360:r=30000/1001:d=6"), "-c:v", "libx264",
+             "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-video_track_timescale", "30000")
+    lst = tmp_path / "list.txt"
+    lst.write_text(f"file '{a}'\nfile '{b}'\n")
+    src = tmp_path / "spliced.mp4"
+    run([ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(lst),
+         "-c", "copy", str(src)])
+    assert measure_timing(ffprobe, src).vfr
+    plan, mi, rep = conform_and_verify(ffmpeg, ffprobe, tmp_path, [str(src)])
+    assert_ok(rep)
+    t = measure_timing(ffprobe, mi.path)
+    assert not t.vfr
+    expected = mi.duration * 30000 / 1001
+    assert abs(mi.video.nb_frames - expected) <= 3, (mi.video.nb_frames, expected)
+
+
+def test_reencode_bitrate_is_capped(ffmpeg, ffprobe, tmp_path):
+    from ingest.core.probe import probe as _probe
+    src = make(ffmpeg, tmp_path / "s.mkv", *lavfi_video("testsrc2=s=854x480:r=30:d=3"), "-c:v", "libx264",
+               "-preset", "ultrafast", "-b:v", "600k", "-pix_fmt", "yuv420p")
+    mi = _probe(ffprobe, src)
+    plan = conform.plan([mi], OutputOptions(), conform.Caps(), None)
+    assert "-maxrate" in plan.args
+
+
 def test_odd_dimensions(ffmpeg, ffprobe, tmp_path):
     src = make(ffmpeg, tmp_path / "odd.webm", *lavfi_video("testsrc2=s=853x481:r=24:d=2"), "-c:v", "libvpx-vp9",
                "-deadline", "realtime", "-cpu-used", "8", "-an")

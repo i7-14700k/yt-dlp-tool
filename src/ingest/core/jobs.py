@@ -178,6 +178,7 @@ class Context:
     release_download: Callable[[Job], None]
     acquire_convert: Callable[[Job, "Runner"], bool]
     release_convert: Callable[[Job], None]
+    nightly_ytdlp: Callable[[], str] = lambda: ""
 
 
 _REDACT = re.compile(r"(://)[^/@\s]+@")
@@ -195,7 +196,9 @@ class Runner(threading.Thread):
         self._last_emit = 0.0
         self._log_fh = None
         self.attempt = Attempt(cookies=bool(job.attempts.get("cookies")),
-                               impersonate=bool(job.attempts.get("impersonate")))
+                               impersonate=bool(job.attempts.get("impersonate")),
+                               nightly=bool(job.attempts.get("nightly")))
+        self._ytdlp_override = ""
         self.suspended = False
         self.holds_download = True
         self.holds_convert = False
@@ -332,7 +335,8 @@ class Runner(threading.Thread):
                       error={"kind": "internal", "title": "Unexpected error",
                              "hint": "Open the log and report it.", "raw": f"{type(e).__name__}: {e}"})
         finally:
-            job.attempts = {"cookies": self.attempt.cookies, "impersonate": self.attempt.impersonate}
+            job.attempts = {"cookies": self.attempt.cookies, "impersonate": self.attempt.impersonate,
+                            "nightly": self.attempt.nightly}
             if self.holds_download:
                 self.holds_download = False
                 self.ctx.release_download(job)
@@ -420,11 +424,40 @@ class Runner(threading.Thread):
                     self._set(stage_text="Network hiccup, retrying")
                     self._sleep(3)
                     continue
+                if self._try_nightly(f, allow_unknown=allow_gallery):
+                    continue
                 if allow_gallery and f.kind in ("unsupported", "no_formats") and self._gallery_available():
                     self.log("-- yt-dlp found nothing, trying gallery-dl")
                     self.job.gallery = True
                     return None
                 raise JobFailed(f)
+
+    def _tools(self) -> Tools:
+        t = self.ctx.tools()
+        if self._ytdlp_override or self.attempt.nightly:
+            path = self._ytdlp_override or self.ctx.nightly_ytdlp()
+            if path:
+                self._ytdlp_override = path
+                t = Tools(ytdlp=path, ffmpeg=t.ffmpeg, ffprobe=t.ffprobe, deno=t.deno, gallerydl=t.gallerydl)
+        return t
+
+    def _try_nightly(self, f: Failure, allow_unknown: bool) -> bool:
+        """Extractor bugs are usually fixed in nightly first: fetch it and retry this job with it."""
+        s = self.ctx.settings()
+        if self.attempt.nightly or not getattr(s, "nightly_fallback", True) or getattr(s, "channel", "") == "nightly":
+            return False
+        if not (f.retry_with == "update" or (allow_unknown and f.kind == "unknown")):
+            return False
+        self._set(stage_text="Site changed, trying yt-dlp nightly")
+        self.log(f"-- {f.kind}: retrying with yt-dlp nightly")
+        path = self.ctx.nightly_ytdlp()
+        self._check_stop()
+        if not path:
+            self.log("-- nightly unavailable")
+            return False
+        self.attempt.nightly = True
+        self._ytdlp_override = path
+        return True
 
     def _gallery_available(self) -> bool:
         s = self.ctx.settings()
@@ -433,13 +466,13 @@ class Runner(threading.Thread):
     # ------------------------------------------------------------ resolve
     def _resolve(self) -> dict:
         job = self.job
-        tools = self.ctx.tools()
+        tools = self._tools()
         if not tools.ytdlp:
             raise JobFailed(Failure("engine", "yt-dlp isn't installed", "Install it in Settings > Engines."))
         self._set(stage=Stage.RESOLVE.value, stage_text="Reading page", dl_progress=0.0)
 
         def step():
-            args = resolve_args(tools, job.net, self.attempt, job.url, job.opts, job.want_playlist)
+            args = resolve_args(self._tools(), job.net, self.attempt, job.url, job.opts, job.want_playlist)
             proc = self._spawn(args, merge=False)
             raw = proc.read_all()
             code = proc.wait()
@@ -523,7 +556,6 @@ class Runner(threading.Thread):
     # ------------------------------------------------------------ download
     def _download(self, info: dict) -> list[str]:
         job = self.job
-        tools = self.ctx.tools()
         if not info and job.info_path:
             info = json.loads(Path(job.info_path).read_text(encoding="utf-8"))
         ids = job.selection.get("format_ids") or job.opts.format_ids or "bv*+ba/b"
@@ -536,9 +568,11 @@ class Runner(threading.Thread):
         self._set(stage=Stage.DOWNLOAD.value, stage_text="Starting download", dl_progress=0.0)
 
         def step():
-            args = download_args(tools, job.net, self.attempt, None if state["use_url"] else job.info_path,
+            args = download_args(self._tools(), job.net, self.attempt, None if state["use_url"] else job.info_path,
                                  job.webpage_url or job.url, ids, job.work_dir, job.opts, live=job.is_live)
             proc = self._spawn(args)
+            if job.is_live:
+                self._watch_recording(proc)
             tail: list[str] = []
             for line in proc.lines():
                 pr = parse_progress(line)
@@ -581,6 +615,27 @@ class Runner(threading.Thread):
         self._set(dl_progress=1.0, speed=None, eta=None)
         return files
 
+    def _watch_recording(self, proc: Proc) -> None:
+        """Live downloads through ffmpeg report nothing until they end; measure the file instead."""
+        wd = Path(self.job.work_dir)
+        started = time.monotonic()
+
+        def loop():
+            from .util import human_duration
+            while proc.poll() is None:
+                size = 0
+                try:
+                    for f in wd.iterdir():
+                        if f.is_file() and f.name != "info.json":
+                            size += f.stat().st_size
+                except OSError:
+                    pass
+                self._set(force=False, downloaded=float(size), speed=None, eta=None,
+                          stage_text=f"Recording live  {human_duration(time.monotonic() - started)}")
+                time.sleep(1.0)
+
+        threading.Thread(target=loop, name=f"live-{self.job.id}", daemon=True).start()
+
     def _on_progress(self, pr, weights: dict[str, float], state: dict) -> None:
         pct = state["pct"]
         pct[pr.format_id] = (pr.percent or 0.0) / 100.0
@@ -594,7 +649,7 @@ class Runner(threading.Thread):
         n = max(len(weights), 1)
         label = ("Downloading audio" if fmt_is_audio else "Downloading video") if n > 1 else "Downloading"
         if self.job.is_live:
-            label = "Recording live"
+            return  # _watch_recording reports live progress
         eta = pr.eta
         if pr.speed and weights and all(v > 1 for v in weights.values()):
             remaining = sum(w * (1 - pct.get(k, 0.0)) for k, w in weights.items())
@@ -683,7 +738,8 @@ class Runner(threading.Thread):
         inputs.sort(key=lambda mi: 0 if mi.video else 1)
         video = next((mi for mi in inputs if mi.video), None)
         timing = None
-        if video and video.video and video.video.codec in ("h264", "hevc") and opts.profile in ("h264", "hevc"):
+        if video and video.video and conform.PROFILES.get(opts.profile, conform.PROFILES["h264"]).kind == "video":
+            # Reads packet timestamps only (no decoding), a second or two even for long files.
             self._set(stage_text="Checking frame timing")
             timing = measure_timing(tools.ffprobe, video.path)
         segments = []

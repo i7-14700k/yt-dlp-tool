@@ -66,6 +66,7 @@ class Attempt:
     """Per-attempt switches the job turns on when a site pushes back."""
     cookies: bool = False
     impersonate: bool = False
+    nightly: bool = False
 
 
 def cookie_args(net: Network, tool: str = "yt-dlp") -> list[str]:

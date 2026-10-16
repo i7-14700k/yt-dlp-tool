@@ -60,7 +60,10 @@ SPECS: dict[str, Spec] = {s.key: s for s in [
          "95 MB"),
     Spec("deno", "Deno", (f"deno{EXE}",), True, "Solves YouTube's player challenges", "45 MB"),
     Spec("gallerydl", "gallery-dl", (f"gallery-dl{EXE}",), False, "Image galleries and extra sites", "14 MB"),
+    Spec("ytdlp_nightly", "yt-dlp nightly", (f"yt-dlp{EXE}",), False,
+         "Fetched on its own when a site breaks, used only for that retry", "18 MB"),
 ]}
+SETUP_KEYS = ("ytdlp", "ffmpeg", "deno", "gallerydl")
 
 _GH = "https://github.com"
 _FFB = f"{_GH}/yt-dlp/FFmpeg-Builds/releases/download/latest"
@@ -74,8 +77,8 @@ def _arch() -> str:
 def asset_plan(key: str, channel: str = "stable") -> dict:
     """Where to download an engine for this platform and how to check it."""
     arch = _arch()
-    if key == "ytdlp":
-        repo = "yt-dlp/yt-dlp-nightly-builds" if channel == "nightly" else "yt-dlp/yt-dlp"
+    if key in ("ytdlp", "ytdlp_nightly"):
+        repo = "yt-dlp/yt-dlp-nightly-builds" if channel == "nightly" or key == "ytdlp_nightly" else "yt-dlp/yt-dlp"
         if IS_WINDOWS:
             name = "yt-dlp.exe"  # x64 build; runs emulated on Windows on ARM
         elif IS_MAC:
@@ -259,6 +262,10 @@ class Engines:
         spec = SPECS[key]
         primary = spec.files[0]
         custom = self._custom(key)
+        if key == "ytdlp_nightly":
+            m = self.manifest(key)
+            p = self.root / key / m.get("current", "-") / primary
+            return (str(p), "managed") if m.get("current") and p.is_file() else ("", "")
         if custom:
             p = Path(custom)
             if p.is_dir():

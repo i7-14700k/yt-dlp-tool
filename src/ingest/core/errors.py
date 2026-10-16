@@ -68,7 +68,9 @@ _RULES: list[tuple[str, str, str, str, str]] = [
            r"player js|\bdeno\b",
      "YouTube's player changed", "Update yt-dlp and Deno in Settings > Engines.", "update"),
     ("extractor", r"unable to extract|failed to parse|please report this issue|extractor error|keyerror|"
-                  r"typeerror|unable to download (?:json|api)",
+                  r"typeerror|indexerror|attributeerror|nonetype|object has no attribute|must be str|"
+                  r"list index out of range|not subscriptable|unexpected keyword|invalid literal|"
+                  r"unable to download (?:json|api)",
      "yt-dlp can't read this page right now", "Update yt-dlp (nightly often has the fix already).",
      "update"),
     ("disk", r"no space left|not enough space|errno 28|winerror 112|disk full",
