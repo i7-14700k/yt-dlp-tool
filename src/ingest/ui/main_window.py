@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -265,13 +266,7 @@ class MainWindow(QMainWindow):
         self.inspect_page.add.connect(self._add_from_inspect)
         self.library_page = LibraryPage(library, self.thumbs)
         self.library_page.action.connect(self._library_action)
-        self.settings_page = SettingsPage(self.s)
-        self.settings_page.changed.connect(self._settings_changed)
-        self.settings_page.engine_install.connect(self._install_engines)
-        self.settings_page.engine_locate.connect(self._locate_engine)
-        self.settings_page.engine_check.connect(lambda: self.tasks.check_updates(["ytdlp", "deno"]))
-        self.settings_page.redetect.connect(self._redetect)
-        self.settings_page.reset.connect(self._reset_settings)
+        self.settings_page = self._make_settings_page()
         self.setup_page = SetupPage()
         self.setup_page.install_requested.connect(self._install_engines)
         self.setup_page.locate_requested.connect(self._locate_engine)
@@ -313,6 +308,7 @@ class MainWindow(QMainWindow):
         self._save_timer.setInterval(400)
         self._save_timer.timeout.connect(self.store.save)
         self.tray: QSystemTrayIcon | None = None
+        self._free = FreeSpace()
 
         self.qm.load()
         self.qm.start_capability_probe()
@@ -364,7 +360,8 @@ class MainWindow(QMainWindow):
         sc("Ctrl+Shift+R", self.qm.resume_all)
         sc("Ctrl+A", lambda: self.view.selectAll() if self.stack.currentWidget() is self.queue_page
            and not self.queue_page.url.field.hasFocus() else None)
-        sc("Escape", lambda: self.show_page("queue") if self.stack.currentWidget() is self.inspect_page else None)
+        # Back the way the page's own button goes, which also stops the yt-dlp still reading the page.
+        sc("Escape", lambda: self.inspect_page._back() if self.stack.currentWidget() is self.inspect_page else None)
 
     def keyPressEvent(self, e) -> None:  # noqa: N802
         # Ctrl+V anywhere that isn't a text field pastes links straight into the queue.
@@ -647,6 +644,16 @@ class MainWindow(QMainWindow):
         self._save_settings()
         self.qm.schedule()
 
+    def _make_settings_page(self) -> SettingsPage:
+        page = SettingsPage(self.s)
+        page.changed.connect(self._settings_changed)
+        page.engine_install.connect(self._install_engines)
+        page.engine_locate.connect(self._locate_engine)
+        page.engine_check.connect(lambda: self.tasks.check_updates(["ytdlp", "deno"]))
+        page.redetect.connect(self._redetect)
+        page.reset.connect(self._reset_settings)
+        return page
+
     def _reset_settings(self) -> None:
         if not Confirm.ask(self, "Reset all settings?", "Output, network, account and engine settings go back to "
                            "their defaults. Your queue, library and engines stay.", ok="Reset", cancel="Keep"):
@@ -654,11 +661,32 @@ class MainWindow(QMainWindow):
         from ..core.settings import Settings
         fresh = Settings()
         fresh.onboarded = True
+        # Copy values into the objects already in use: pages and the queue hold references to
+        # self.s and self.s.output, and edits made to a replaced object would never be saved.
         for f in fresh.__dataclass_fields__:
-            setattr(self.s, f, getattr(fresh, f))
+            if f == "output":
+                for g in fresh.output.__dataclass_fields__:
+                    setattr(self.s.output, g, getattr(fresh.output, g))
+            else:
+                setattr(self.s, f, getattr(fresh, f))
         self.store.save()
-        self.toast.show_message("Settings reset. Restart Ingest to refresh every page.")
+        # Rebuild Settings so every control shows its default, and refresh the rest.
+        old = self.settings_page
+        self.settings_page = self._make_settings_page()
+        self.pages["settings"] = self.settings_page
+        self.stack.insertWidget(self.stack.indexOf(old), self.settings_page)
+        for area in self.settings_page.findChildren(QAbstractScrollArea):
+            autohide_scrollbars(area)
+        if self.stack.currentWidget() is old:
+            self.stack.setCurrentWidget(self.settings_page)
+        self.stack.removeWidget(old)
+        old.deleteLater()
         self.panel.set_options(self.s.output)
+        self.thumbs.set_proxy(self.s.proxy)
+        self.qm.invalidate_tools()
+        self.tasks.refresh_states()
+        self._caps_to_settings()
+        self.toast.show_message("Settings reset")
 
     def _install_engines(self, keys: list[str]) -> None:
         # Installing means "use Ingest's own copy": a path set with Locate would otherwise keep
@@ -827,7 +855,7 @@ class MainWindow(QMainWindow):
             parts.append(f"{c['paused']} paused")
         if c["failed"]:
             parts.append(f"{c['failed']} failed")
-        free = disk_free(self.s.output.resolved_output_dir())
+        free = self._free.get(self.s.output.resolved_output_dir())
         if free is not None:
             parts.append(f"{human_bytes(free)} free")
         self.queue_page.stats.setText("  ·  ".join(parts))
@@ -865,6 +893,40 @@ class MainWindow(QMainWindow):
         QApplication.instance().quit()
 
 
+class FreeSpace:
+    """Free space on the output drive, measured off the GUI thread.
+
+    The status line asks twice a second; asking Windows about a network share
+    that has gone offline blocks for many seconds, which would freeze the window.
+    """
+
+    def __init__(self, every: float = 5.0) -> None:
+        self.every = every
+        self._value: int | None = None
+        self._path: Path | None = None
+        self._at = 0.0
+        self._busy = False
+        self._lock = threading.Lock()
+
+    def get(self, path: Path) -> int | None:
+        with self._lock:
+            stale = self._path != path or time.monotonic() - self._at > self.every
+            if self._path != path:
+                self._value = None
+            if stale and not self._busy:
+                self._busy = True
+                self._path, self._at = path, time.monotonic()
+                threading.Thread(target=self._measure, args=(path,), name="free-space", daemon=True).start()
+            return self._value
+
+    def _measure(self, path: Path) -> None:
+        value = disk_free(path)
+        with self._lock:
+            if self._path == path:
+                self._value = value
+            self._busy = False
+
+
 def show_menu(menu, pos: QPoint) -> None:
     """One place that blocks on a menu, so tests can replace it."""
     menu.exec(pos)
@@ -884,7 +946,9 @@ def reveal(path: str) -> None:
     p = Path(path)
     if sys.platform == "win32":
         if p.exists():
-            subprocess.Popen(["explorer", "/select,", str(p)], creationflags=0x08000000)
+            # One string, path always quoted: Explorer splits /select at commas otherwise, and
+            # titles are full of them.
+            subprocess.Popen(f'explorer /select,"{p}"', creationflags=0x08000000)
         else:
             os.startfile(str(p.parent)) if p.parent.exists() else None  # noqa: S606
     elif sys.platform == "darwin":

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import queue
+import threading
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QRectF, QSize, Qt, QUrl, Signal
@@ -28,8 +30,27 @@ def cover(img: QImage, w: int, h: int) -> QImage:
     return scaled.copy(x, y, w, h)
 
 
+def _read_local(url: str) -> QImage:
+    """Decode a picture on disk at thumbnail size. Runs on a worker thread."""
+    try:
+        if not Path(url).is_file():
+            return QImage()
+    except OSError:
+        return QImage()
+    reader = QImageReader(url)
+    reader.setAutoTransform(True)
+    full = reader.size()
+    if full.isValid() and full.width() > THUMB_W * 2 and full.height() > THUMB_H * 2:
+        # Decode small: a 6000 px photo needn't be decoded at full size for a 112 px tile.
+        k = max(THUMB_W * 2 / full.width(), THUMB_H * 2 / full.height())
+        reader.setScaledSize(QSize(max(1, round(full.width() * k)), max(1, round(full.height() * k))))
+    img = reader.read()
+    return img if img.isNull() else cover(img, THUMB_W, THUMB_H)
+
+
 class ThumbCache(QObject):
     loaded = Signal(str)
+    _local_done = Signal(str, QImage)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -40,6 +61,11 @@ class ThumbCache(QObject):
         self._failed: set[str] = set()
         self._nam = QNetworkAccessManager(self)
         self._nam.setTransferTimeout(20000)
+        # Pictures on the output drive load on two daemon threads, not in paint: a network share
+        # can stall for seconds, and a daemon thread stuck on one never holds up quitting.
+        self._local_q: queue.Queue[str] = queue.Queue()
+        self._workers: list[threading.Thread] = []
+        self._local_done.connect(self._on_local)
 
     def set_proxy(self, proxy_url: str) -> None:
         if not proxy_url:
@@ -67,24 +93,35 @@ class ThumbCache(QObject):
                 pm = QPixmap.fromImage(img)
                 self._remember(url, pm)
                 return pm
-        if url.startswith(("http://", "https://")) and url not in self._pending:
+        if url in self._pending:
+            return None
+        if url.startswith(("http://", "https://")):
             self._fetch(url)
-        elif Path(url).is_file():
-            reader = QImageReader(url)
-            reader.setAutoTransform(True)
-            full = reader.size()
-            if full.isValid() and full.width() > THUMB_W * 2 and full.height() > THUMB_H * 2:
-                # Decode small: a 6000 px photo would otherwise stall the paint that asked for it.
-                k = max(THUMB_W * 2 / full.width(), THUMB_H * 2 / full.height())
-                reader.setScaledSize(QSize(max(1, round(full.width() * k)), max(1, round(full.height() * k))))
-            img = reader.read()
-            if img.isNull():
-                self._failed.add(url)
-            else:
-                pm = QPixmap.fromImage(cover(img, THUMB_W, THUMB_H))
-                self._remember(url, pm)
-                return pm
+        else:
+            self._pending.add(url)
+            if len(self._workers) < 2:
+                t = threading.Thread(target=self._local_worker, name="thumbs", daemon=True)
+                t.start()
+                self._workers.append(t)
+            self._local_q.put(url)
         return None
+
+    def _local_worker(self) -> None:
+        while True:
+            url = self._local_q.get()
+            try:
+                img = _read_local(url)
+            except Exception:
+                img = QImage()
+            self._local_done.emit(url, img)
+
+    def _on_local(self, url: str, img: QImage) -> None:
+        self._pending.discard(url)
+        if img.isNull():
+            self._failed.add(url)
+            return
+        self._remember(url, QPixmap.fromImage(img))
+        self.loaded.emit(url)
 
     def _remember(self, url: str, pm: QPixmap) -> None:
         if len(self._mem) > 600:

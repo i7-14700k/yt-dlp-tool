@@ -353,3 +353,20 @@ def test_locate_refuses_the_wrong_program_and_install_replaces_a_custom_path(qap
     window._install_engines(["ffmpeg"])
     assert window.s.path_ffmpeg == ""
     assert list(window.settings_page.engine_rows) == ["ytdlp", "ffmpeg", "deno", "gallerydl"]
+
+
+def test_reset_settings_keeps_pages_bound_to_live_settings(qapp, window, tmp_path, monkeypatch):
+    from ingest.ui.dialogs import Confirm
+    monkeypatch.setattr(Confirm, "ask", staticmethod(lambda *a, **k: True))
+    live_output = window.s.output
+    window.s.output.profile = "prores"
+    window._reset_settings()
+    pump(qapp, 0.2)
+    assert window.s.output is live_output and window.s.output.profile == "h264"
+    assert window.panel.opts is live_output and window.settings_page.s is window.s
+    assert window.pages["settings"] is window.settings_page
+    assert window.stack.indexOf(window.settings_page) >= 0
+    # An edit after the reset is saved.
+    window.panel._on_profile("dnxhr")
+    wait_for(qapp, lambda: json.loads((tmp_path / "settings.json").read_text())["output"]["profile"] == "dnxhr",
+             timeout=5)

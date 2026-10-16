@@ -211,3 +211,20 @@ def test_check_engine_file(tmp_path, ffmpeg):
     assert not use and "not yt-dlp" in why
     use, why = check_engine_file("deno", str(tmp_path / "nothing.exe"))
     assert not use and "no deno" in why
+
+
+def test_free_space_is_measured_off_the_gui_thread(tmp_path, monkeypatch):
+    import threading
+    import time
+    from ingest.ui import main_window as mw
+    gate = threading.Event()
+    monkeypatch.setattr(mw, "disk_free", lambda p: (gate.wait(5), 123)[1])  # a share that hangs
+    fs = mw.FreeSpace(every=0)
+    t0 = time.monotonic()
+    assert fs.get(tmp_path) is None  # returns at once, doesn't wait for the drive
+    assert time.monotonic() - t0 < 0.5
+    gate.set()
+    deadline = time.monotonic() + 5
+    while fs.get(tmp_path) is None and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert fs.get(tmp_path) == 123

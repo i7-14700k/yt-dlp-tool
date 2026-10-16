@@ -422,6 +422,10 @@ class Engines:
             if progress:
                 progress("Checking", 0, None)
             expected = _expected_sum(plan, proxy)
+            if plan.get("sums") and not expected:
+                # Unverified binaries don't get installed, whatever stopped the check.
+                raise InstallError(f"Couldn't get the published checksum for {SPECS[key].name}, so nothing was "
+                                   "installed. Check the connection and try again.")
             fname = plan["url"].rsplit("/", 1)[-1]
             blob = stage / fname
             digest = download_file(plan["url"], blob, proxy, progress, cancel)

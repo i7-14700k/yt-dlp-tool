@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -21,18 +22,46 @@ ROW_H = 80
 
 class LibraryModel(QAbstractListModel):
     ItemRole = Qt.UserRole + 2
+    _checked = Signal(int, dict)  # generation, item id -> file exists
 
     def __init__(self, library: Library, parent=None) -> None:
         super().__init__(parent)
         self.library = library
         self.items: list[Item] = []
         self._exists: dict[str, bool] = {}
+        self._gen = 0
+        self._checked.connect(self._on_checked)
 
     def reload(self, query: str = "", kind: str = "all") -> None:
         self.beginResetModel()
         self.items = self.library.list(query, kind)
         self._exists = {}
+        self._gen += 1
         self.endResetModel()
+        # Whether each file is still there, asked off the GUI thread: on a network share that's
+        # offline every check can block for seconds.
+        items, gen = [(it.id, it.path) for it in self.items], self._gen
+        threading.Thread(target=self._check, args=(gen, items), name="library-exists", daemon=True).start()
+
+    def _check(self, gen: int, items: list[tuple[str, str]]) -> None:
+        batch: dict[str, bool] = {}
+        for n, (item_id, path) in enumerate(items, 1):
+            if gen != self._gen:
+                return
+            try:
+                batch[item_id] = bool(path) and Path(path).exists()
+            except OSError:
+                batch[item_id] = False
+            if len(batch) >= 40 or n == len(items):
+                self._checked.emit(gen, batch)
+                batch = {}
+
+    def _on_checked(self, gen: int, found: dict) -> None:
+        if gen != self._gen:
+            return
+        self._exists.update(found)
+        if self.items:
+            self.dataChanged.emit(self.index(0), self.index(len(self.items) - 1))
 
     def rowCount(self, parent=QModelIndex()) -> int:  # noqa: N802
         return 0 if parent.isValid() else len(self.items)
@@ -53,11 +82,7 @@ class LibraryModel(QAbstractListModel):
         return super().flags(index) | Qt.ItemIsDragEnabled
 
     def exists(self, it: Item) -> bool:
-        v = self._exists.get(it.id)
-        if v is None:
-            v = it.exists
-            self._exists[it.id] = v
-        return v
+        return self._exists.get(it.id, True)  # shown as present until the check says otherwise
 
 
 def _when(ts: float) -> str:
