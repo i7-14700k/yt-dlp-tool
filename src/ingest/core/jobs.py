@@ -30,7 +30,7 @@ from typing import Callable
 from . import conform, naming, paths, sponsorblock, verify, winapi
 from .errors import Failure, classify, ffmpeg_failure
 from .library import Item, Library
-from .probe import MediaInfo, ProbeError, grid_fit, measure_timing, probe
+from .probe import MediaInfo, ProbeError, grid_fit_from_scan, grid_scan_args, measure_timing, probe
 from .procs import Proc
 from .settings import OutputOptions, from_dict, to_dict
 from .ytdlp import (Attempt, Network, Tools, download_args, gallery_args, load_info, parse_file,
@@ -791,7 +791,7 @@ class Runner(threading.Thread):
             # fits an exact grid, restamp instead of re-encoding: lossless, and seconds instead
             # of hours for a long stream recording.
             self._set(stage_text="Checking every frame's timestamp")
-            fit = grid_fit(tools.ffprobe, video.path, p.retime_rate, video.video.index)
+            fit = self._grid_fit(tools.ffprobe, video.path, p.retime_rate, video.video.index)
             if fit is not None:
                 self.log(f"-- every frame fits a {_fps_text(str(p.retime_rate))} grid (worst {fit.worst:.2f} frame), "
                          "retiming instead of encoding")
@@ -854,6 +854,16 @@ class Runner(threading.Thread):
             if opts.conflict == "number":
                 target = naming.unique_path(target)
         return target
+
+    def _grid_fit(self, ffprobe: str, path: str, rate, stream_index: int):
+        # Reads every packet, which takes a while on a long recording; run it as the job's
+        # process so Pause and Cancel stop it like any other step.
+        proc = self._spawn(grid_scan_args(ffprobe, path, stream_index), merge=False)
+        out = proc.read_all()
+        code = proc.wait()
+        self._clear_proc()
+        self._check_stop()
+        return grid_fit_from_scan(out.decode("utf-8", "replace"), rate) if code == 0 else None
 
     def _run_ffmpeg(self, p: conform.Plan, final: Path) -> conform.Plan:
         """Run a plan (or its fallbacks) to `final`. Returns the plan that produced the file."""

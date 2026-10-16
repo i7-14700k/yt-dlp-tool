@@ -327,11 +327,18 @@ def grid_fit(ffprobe: str, path: str | Path, rate: Fraction, stream_index: int |
     spaced all along and only their stamps jitter. Reads every packet of the
     stream, no decoding.
     """
+    code, out = run_capture(grid_scan_args(ffprobe, path, stream_index), timeout=timeout)
+    return grid_fit_from_scan(out, rate) if code == 0 else None
+
+
+def grid_scan_args(ffprobe: str, path: str | Path, stream_index: int | None = None) -> list[str]:
     sel = f"{stream_index}" if stream_index is not None else "v:0"
-    code, out = run_capture(
-        [ffprobe, "-v", "error", "-select_streams", sel, "-show_entries", "packet=pts_time,flags",
-         "-of", "csv=p=0", str(path)], timeout=timeout)
-    if code != 0 or not rate:
+    return [ffprobe, "-v", "error", "-select_streams", sel, "-show_entries", "packet=pts_time,flags",
+            "-of", "csv=p=0", str(path)]
+
+
+def grid_fit_from_scan(out: str, rate: Fraction) -> GridFit | None:
+    if not rate:
         return None
     pts: list[float] = []
     first_key = False
