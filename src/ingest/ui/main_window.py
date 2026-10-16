@@ -268,6 +268,7 @@ class MainWindow(QMainWindow):
         self.library_page = LibraryPage(library, self.thumbs)
         self.library_page.action.connect(self._library_action)
         self.settings_page = self._make_settings_page()
+        self._channel = self.s.channel
         self.setup_page = SetupPage()
         self.setup_page.install_requested.connect(self._install_engines)
         self.setup_page.locate_requested.connect(self._locate_engine)
@@ -665,6 +666,21 @@ class MainWindow(QMainWindow):
         self.panel.refresh(full=True)
         self._save_settings()
         self.qm.schedule()
+        if self.s.channel != self._channel:
+            self._channel = self.s.channel
+            self._switch_channel()
+
+    def _switch_channel(self) -> None:
+        # The channel decides which build Ingest installs, so switching installs it now; waiting
+        # for the daily check would also leave the nightly fallback off with a stable yt-dlp.
+        _path, source = self.engines.locate("ytdlp")
+        if source in ("custom", "system"):
+            where = "the file you picked" if source == "custom" else "your PATH"
+            self.toast.show_message(f"yt-dlp comes from {where}, so the channel applies once Ingest installs "
+                                    "its own", "Install", lambda: self._install_engines(["ytdlp"]), ms=6000)
+            return
+        self.toast.show_message(f"Switching yt-dlp to {self.s.channel}")
+        self._install_engines(["ytdlp"])
 
     def _make_settings_page(self) -> SettingsPage:
         page = SettingsPage(self.s)
@@ -709,6 +725,9 @@ class MainWindow(QMainWindow):
         self.tasks.refresh_states()
         self._caps_to_settings()
         self.toast.show_message("Settings reset")
+        if self.s.channel != self._channel:
+            self._channel = self.s.channel
+            self._switch_channel()
 
     def _install_engines(self, keys: list[str]) -> None:
         # Installing means "use Ingest's own copy": a path set with Locate would otherwise keep

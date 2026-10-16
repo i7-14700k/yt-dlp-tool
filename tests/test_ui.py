@@ -430,3 +430,20 @@ def test_cancel_asks_before_throwing_away_a_download(qapp, window, monkeypatch):
     answer["v"] = True
     window.view.action.emit(job.id, "cancel")
     wait_for(qapp, lambda: job.status == "canceled", timeout=30)
+
+
+def test_switching_channel_installs_that_build(qapp, window, monkeypatch):
+    installs, toasts = [], []
+    monkeypatch.setattr(window.tasks, "install", lambda keys: installs.append(list(keys)) or True)
+    monkeypatch.setattr(window.toast, "show_message", lambda text, *a, **k: toasts.append(text))
+    monkeypatch.setattr(window.engines, "locate", lambda key: ("/x/yt-dlp", "managed"))
+    window.s.channel = "nightly"
+    window._settings_changed()
+    assert installs == [["ytdlp"]] and "nightly" in toasts[-1]
+    window._settings_changed()  # nothing changed this time
+    assert installs == [["ytdlp"]]
+    # A yt-dlp from PATH isn't Ingest's to replace without asking.
+    monkeypatch.setattr(window.engines, "locate", lambda key: ("/usr/bin/yt-dlp", "system"))
+    window.s.channel = "stable"
+    window._settings_changed()
+    assert installs == [["ytdlp"]] and "PATH" in toasts[-1]
