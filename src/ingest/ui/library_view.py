@@ -6,7 +6,8 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QAbstractListModel, QMimeData, QModelIndex, QPoint, QPointF, QRectF, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import (QAbstractListModel, QMimeData, QModelIndex, QPoint, QPointF, QRectF, QSize, Qt, QTimer, QUrl,
+                            Signal)
 from PySide6.QtGui import QDrag, QFontMetricsF, QPainter
 from PySide6.QtWidgets import QAbstractItemView, QListView, QStyle, QStyledItemDelegate, QWidget
 

@@ -321,7 +321,8 @@ class SettingsPage(QWidget):
         g.lay.addSpacing(10)
         g.row("yt-dlp channel", self._bind_seg("channel", [("stable", "Stable"), ("nightly", "Nightly")], width=200),
               "Nightly gets site fixes days or weeks before a stable release.")
-        g.row("Update engines automatically", self._bind_toggle("auto_update"), "Checks once a day, also while Ingest stays open.")
+        g.row("Update engines automatically", self._bind_toggle("auto_update"),
+              "Checks once a day, also while Ingest stays open.")
         g.row("Retry broken sites with nightly", self._bind_toggle("nightly_fallback"),
               "When yt-dlp can't read a page, fetch the latest nightly build and retry that one download "
               "with it. Your stable yt-dlp stays as it is.")
