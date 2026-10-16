@@ -399,3 +399,16 @@ def test_install_failure_stays_on_the_row(qapp, window):
     row.action.click()  # the next attempt clears it
     window._on_engine_states({"deno": EngineState(key="deno", error="Not installed")})
     assert "failed" not in row.status.text()
+
+
+def test_log_viewer_shows_whole_lines_while_the_log_grows(qapp, tmp_path, monkeypatch):
+    from ingest.ui.dialogs import LogViewer
+    log = tmp_path / "job.log"
+    log.write_bytes("first line\nsecond lin".encode() + "e 日".encode()[:-2])  # cut mid-line, mid-character
+    lv = LogViewer(None, "Job", str(log))
+    assert lv.text.toPlainText() == "first line"
+    with open(log, "ab") as fh:
+        fh.write("日".encode()[1:] + b" done\nthird\n")
+    lv._poll()
+    assert lv.text.toPlainText() == "first line\nsecond line 日 done\nthird"
+    lv.close()

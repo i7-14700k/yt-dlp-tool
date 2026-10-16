@@ -134,9 +134,13 @@ class LogViewer(_Base):
             with open(self.path, "rb") as fh:
                 fh.seek(self._pos)
                 data = fh.read()
-                self._pos = fh.tell()
         except OSError:
             return
+        # Take whole lines only: the job is still writing, and a read can stop mid-line or in
+        # the middle of a multi-byte character. The rest is picked up on the next poll.
+        cut = data.rfind(b"\n") + 1
+        data = data[:cut]
+        self._pos += cut
         if data:
             at_end = self.text.verticalScrollBar().value() >= self.text.verticalScrollBar().maximum() - 4
             text = data.decode("utf-8", "replace")
