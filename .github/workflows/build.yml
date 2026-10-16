@@ -66,6 +66,7 @@ jobs:
         shell: pwsh
         run: |
           $env:INGEST_HOME = "$env:RUNNER_TEMP\ingest-home"
+          $env:INGEST_DEMO_INFO = "$PWD\tests\data\inspect_demo.json"
           $p = Start-Process -FilePath dist\Ingest\Ingest.exe -Wait -PassThru -ArgumentList @(
             "--selftest", "--screenshot", "$env:RUNNER_TEMP\screens", "--report", "$env:RUNNER_TEMP\selftest.json")
           Get-Content "$env:RUNNER_TEMP\selftest.json"

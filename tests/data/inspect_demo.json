@@ -1,0 +1,119 @@
+{
+ "id": "9c9de5e8-0a1e-484a-b099-e80766180a6d",
+ "title": "What is PeerTube?",
+ "uploader": "Framasoft",
+ "channel": "A propos de PeerTube",
+ "extractor": "PeerTube",
+ "extractor_key": "PeerTube",
+ "duration": 113,
+ "upload_date": "20181001",
+ "view_count": 148766,
+ "webpage_url": "https://framatube.org/videos/watch/9c9de5e8-0a1e-484a-b099-e80766180a6d",
+ "thumbnail": "https://framatube.org/lazy-static/thumbnails/2463a64d-561c-4442-9a76-15337b58a4b2.jpg",
+ "format_id": "9",
+ "width": 1920,
+ "height": 1080,
+ "fps": 24.0,
+ "vcodec": "avc1.64001f",
+ "acodec": "mp4a.40.2",
+ "ext": "mp4",
+ "formats": [
+  {
+   "format_id": "240p",
+   "ext": "mp4",
+   "height": 240,
+   "fps": 24,
+   "filesize": 3792049,
+   "dynamic_range": "SDR"
+  },
+  {
+   "format_id": "1",
+   "ext": "mp4",
+   "vcodec": "avc1.64001f",
+   "acodec": "mp4a.40.2",
+   "width": 426,
+   "height": 240,
+   "fps": 24.0,
+   "tbr": 268.464,
+   "dynamic_range": "SDR"
+  },
+  {
+   "format_id": "360p",
+   "ext": "mp4",
+   "height": 360,
+   "fps": 24,
+   "filesize": 5166155,
+   "dynamic_range": "SDR"
+  },
+  {
+   "format_id": "3",
+   "ext": "mp4",
+   "vcodec": "avc1.64001f",
+   "acodec": "mp4a.40.2",
+   "width": 640,
+   "height": 360,
+   "fps": 24.0,
+   "tbr": 365.746,
+   "dynamic_range": "SDR"
+  },
+  {
+   "format_id": "480p",
+   "ext": "mp4",
+   "height": 480,
+   "fps": 24,
+   "filesize": 6557911,
+   "dynamic_range": "SDR"
+  },
+  {
+   "format_id": "5",
+   "ext": "mp4",
+   "vcodec": "avc1.64001f",
+   "acodec": "mp4a.40.2",
+   "width": 852,
+   "height": 480,
+   "fps": 24.0,
+   "tbr": 464.277,
+   "dynamic_range": "SDR"
+  },
+  {
+   "format_id": "720p",
+   "ext": "mp4",
+   "height": 720,
+   "fps": 24,
+   "filesize": 10017104,
+   "dynamic_range": "SDR"
+  },
+  {
+   "format_id": "7",
+   "ext": "mp4",
+   "vcodec": "avc1.64001f",
+   "acodec": "mp4a.40.2",
+   "width": 1280,
+   "height": 720,
+   "fps": 24.0,
+   "tbr": 709.176,
+   "dynamic_range": "SDR"
+  },
+  {
+   "format_id": "1080p",
+   "ext": "mp4",
+   "height": 1080,
+   "fps": 24,
+   "filesize": 16815344,
+   "dynamic_range": "SDR"
+  },
+  {
+   "format_id": "9",
+   "ext": "mp4",
+   "vcodec": "avc1.64001f",
+   "acodec": "mp4a.40.2",
+   "width": 1920,
+   "height": 1080,
+   "fps": 24.0,
+   "tbr": 1190.467,
+   "dynamic_range": "SDR"
+  }
+ ],
+ "subtitles": {},
+ "automatic_captions": {}
+}

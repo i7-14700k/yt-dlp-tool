@@ -113,10 +113,6 @@ def run_headless(app, store, engines, library, outdir: str | None, selftest: boo
             win.inspect_page.open(info.get("webpage_url") or "https://example.com", info=info)
             win.show_page("inspect")
             _pump(app, 1.2)
-            if os.environ.get("INGEST_DEBUG_LAYOUT"):
-                pg = win.inspect_page
-                print("DEBUG", pg.vtable.geometry(), pg.atable.geometry(), pg.vtable.parentWidget().geometry(),
-                      file=sys.stderr)
             win.grab().save(str(out / "07-inspect.png"))
         # playlist picking
         entries = [{"url": f"https://example.com/v{i}", "title": t, "duration": d,

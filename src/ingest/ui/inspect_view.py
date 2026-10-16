@@ -677,7 +677,7 @@ class InspectPage(QWidget):
 
     def _fill_tables(self) -> None:
         info = self.info or {}
-        req = info.get("requested_formats") or ([info] if info.get("format_id") else [])
+        req = self._picked(info) if info.get("format_id") or info.get("requested_formats") else []
         auto_v = next((f for f in req if f.get("vcodec") not in (None, "none")), None)
         auto_a = next((f for f in req if f.get("vcodec") == "none" and f.get("acodec") != "none"), None)
         prof = self.opts.profile
@@ -764,7 +764,7 @@ class InspectPage(QWidget):
         return "convert"
 
     def _describe_pick(self, info: dict) -> None:
-        req = info.get("requested_formats") or ([info] if info.get("format_id") else [])
+        req = self._picked(info) if info.get("format_id") or info.get("requested_formats") else []
         v = next((f for f in req if f.get("vcodec") not in (None, "none") or f.get("height")), None)
         a = next((f for f in req if f.get("vcodec") == "none" and f.get("acodec") != "none"), None)
         prof = self.opts.profile
@@ -858,11 +858,18 @@ class InspectPage(QWidget):
             self._describe_pick(self.info)
             self._fill_tables()
 
+    def _picked(self, info: dict) -> list[dict]:
+        """The formats yt-dlp chose, as full entries from the format list where possible."""
+        req = info.get("requested_formats")
+        if req:
+            return req
+        by_id = {str(f.get("format_id")): f for f in info.get("formats") or []}
+        return [by_id.get(str(info.get("format_id")), info)]
+
     def _update_estimate(self) -> None:
         info = self.info or {}
         v = next((f for f in self._vids if f["format_id"] == self.vtable.value), None) if self.vtable.value != "auto" \
-            else next((f for f in (info.get("requested_formats") or [info]) if f.get("vcodec") not in (None, "none")),
-                      None)
+            else next((f for f in self._picked(info) if f.get("vcodec") not in (None, "none")), None)
         dur = float(info.get("duration") or 0)
         if self.opts.trim_start is not None or self.opts.trim_end is not None:
             dur = (self.opts.trim_end or dur) - (self.opts.trim_start or 0)
