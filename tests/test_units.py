@@ -30,8 +30,13 @@ def test_render_template_drops_empty_tokens():
 
 
 def test_fit_path_respects_max_path(tmp_path):
-    p = naming.fit_path(tmp_path / ("d" * 150), "t" * 200, ".mp4")
+    folder = tmp_path / ("d" * max(10, 200 - len(str(tmp_path))))
+    p = naming.fit_path(folder, "t" * 200, ".mp4")
     assert len(str(p)) <= naming.MAX_PATH_SAFE
+    assert p.suffix == ".mp4" and len(p.stem) >= 16
+    # A folder already past the limit keeps a readable stem rather than an empty one.
+    deep = naming.fit_path(tmp_path / ("d" * 260), "title", ".mp4")
+    assert deep.name == "title.mp4"
 
 
 def test_unique_path(tmp_path):

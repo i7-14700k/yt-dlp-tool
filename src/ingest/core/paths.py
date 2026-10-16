@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import os
 import sys
 from pathlib import Path
@@ -90,6 +91,7 @@ def bundled_engines_dir() -> Path:
     return resource_dir() / "engines"
 
 
+@functools.lru_cache(maxsize=1)
 def default_download_dir() -> Path:
     videos = winapi.known_folder(winapi.FOLDERID_VIDEOS) if is_windows() else None
     if videos is None:

@@ -23,6 +23,8 @@ if "--load-info-json" in args:
     url = info["webpage_url"]
 p = urlparse(url)
 kind, name = p.netloc, p.path.strip("/") or "x"
+if p.netloc == "fake.test":  # https://fake.test/<kind>/<name>, for code paths that only accept web links
+    kind, _, name = p.path.strip("/").partition("/")
 slow = "slow" in p.query
 
 
@@ -47,7 +49,7 @@ if "--dump-single-json" in args:
     if kind == "playlist":
         n = int(name)
         print(json.dumps({"_type": "playlist", "id": "pl", "title": "Fake list", "entries": [
-            {"_type": "url", "url": f"fake://video/e{i}", "title": f"Entry {i}", "duration": 2}
+            {"_type": "url", "url": f"https://fake.test/video/e{i}", "title": f"Entry {i}", "duration": 2}
             for i in range(1, n + 1)]}))
     else:
         d = info_for(name)

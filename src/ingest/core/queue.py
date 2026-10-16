@@ -58,6 +58,7 @@ class QueueManager:
         self._save_timer: threading.Timer | None = None
         self._schedule_pending = False
         self._closing = False
+        self._requeue: set[str] = set()
 
     # ---------------------------------------------------------------- capabilities
     def start_capability_probe(self) -> None:
@@ -109,8 +110,17 @@ class QueueManager:
         )
 
     def _on_update(self, job: Job, fields: dict) -> None:
-        self.events.updated(job, fields)
         st = fields.get("status")
+        if st == Status.PAUSED.value and job.id in self._requeue:
+            # Resume was pressed while the pause was still settling.
+            self._requeue.discard(job.id)
+            job.status = Status.QUEUED.value
+            job.stage_text = "Waiting"
+            fields = {**fields, "status": job.status, "stage_text": job.stage_text}
+            self.events.updated(job, fields)
+            self._schedule_later()
+            return
+        self.events.updated(job, fields)
         if st in (Status.DONE.value, Status.FAILED.value, Status.CANCELED.value, Status.PAUSED.value):
             if st in (Status.DONE.value, Status.FAILED.value):
                 self.events.finished(job)
@@ -231,6 +241,9 @@ class QueueManager:
             r = self.runners.get(job_id)
             if r is not None and r.is_alive() and r.suspended:
                 r.resume()
+                return
+            if r is not None and r.is_alive() and r._stop_reason == "pause":
+                self._requeue.add(job_id)
                 return
             if job.status in (Status.PAUSED.value, Status.FAILED.value, Status.CANCELED.value):
                 if job.status != Status.PAUSED.value:
@@ -379,11 +392,19 @@ class QueueManager:
             self._save_timer.start()
 
     def save(self) -> None:
-        with self._lock:
-            keep = [j for j in self.jobs if j.status != Status.CANCELED.value][-500:]
-            data = {"version": 1, "jobs": [j.to_dict() for j in keep]}
+        for _attempt in range(3):
+            try:
+                with self._lock:
+                    keep = [j for j in self.jobs if j.status != Status.CANCELED.value][-500:]
+                    data = {"version": 1, "jobs": [j.to_dict() for j in keep]}
+                text = json.dumps(data, ensure_ascii=False)
+                break
+            except (RuntimeError, ValueError, TypeError):
+                time.sleep(0.05)  # a worker changed a list mid-copy; take a fresh snapshot
+        else:
+            return
         try:
-            atomic_write_text(self.state_path, json.dumps(data, ensure_ascii=False))
+            atomic_write_text(self.state_path, text)
         except OSError:
             pass
 

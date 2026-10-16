@@ -667,6 +667,11 @@ class Runner(threading.Thread):
         try:
             return probe(self.ctx.tools().ffprobe, path)
         except ProbeError as e:
+            # Don't reuse a damaged download on retry.
+            for f in self.job.files:
+                _unlink(Path(f))
+            self.job.files = []
+            self.job.info_path = ""
             raise JobFailed(Failure("corrupt", "The downloaded file can't be read", "Retry the download.",
                                     str(e), "refresh"))
 
