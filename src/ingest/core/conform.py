@@ -684,3 +684,36 @@ def _plan_video(inputs, video, audio, profile: Profile, opts: OutputOptions, cap
         p.fallback = _plan_video(inputs, video, audio, profile, opts, caps, timing, title, url, trim, segments,
                                  force_encoder=fallback_family)
     return p
+
+
+# ---------------------------------------------------------------- size estimates
+
+_REF_PIXEL_RATE = 1920 * 1080 * 29.97
+_INTRA_MBPS = {
+    "prores": {"proxy": 45, "lt": 102, "standard": 147, "hq": 220},
+    "dnxhr": {"lb": 45, "sq": 145, "hq": 220, "hqx": 220},
+}
+_BPP = {"max": 0.25, "high": 0.15, "balanced": 0.09, "compact": 0.055}
+
+
+def estimate_size(opts: OutputOptions, width: int, height: int, fps: float, duration: float,
+                  source_bytes: float = 0.0, copies_video: bool = False) -> float:
+    """Rough output size in bytes, for showing before a download starts."""
+    if not duration:
+        return 0.0
+    prof = opts.profile
+    if prof == "wav":
+        return duration * 48000 * (opts.pcm_depth // 8) * 2
+    if prof in ("aac", "mp3"):
+        return duration * min(320, opts.audio_bitrate) * 125
+    if prof == "original" or copies_video:
+        return source_bytes
+    fps = fps or 30.0
+    pixel_rate = max(1, width * height) * fps
+    if prof in _INTRA_MBPS:
+        key = opts.prores if prof == "prores" else opts.dnxhr
+        mbps = _INTRA_MBPS[prof].get(key, 220) * pixel_rate / _REF_PIXEL_RATE
+        audio = 48000 * (opts.pcm_depth // 8) * 2 * 8
+        return duration * (mbps * 1e6 + audio) / 8
+    bpp = _BPP.get(opts.quality, 0.15) * (0.6 if prof == "hevc" else 1.0)
+    return duration * (pixel_rate * bpp + opts.audio_bitrate * 1000) / 8
