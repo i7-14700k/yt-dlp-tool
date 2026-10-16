@@ -196,8 +196,6 @@ class QueuePage(QWidget):
 
 
 class MainWindow(QMainWindow):
-    quit_requested = Signal()
-
     def __init__(self, store: SettingsStore, engines: Engines, library: Library) -> None:
         super().__init__()
         track_keyboard_focus(QApplication.instance())

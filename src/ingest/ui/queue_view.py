@@ -481,7 +481,6 @@ class QueueView(QListView):
     opened = Signal(str)
     context = Signal(list, QPoint)     # job ids, global pos
     remove_many = Signal(list)         # job ids (Delete key): confirmed once for the batch
-    selectionCountChanged = Signal(int)
 
     def __init__(self, model: QueueModel, thumbs: ThumbCache, parent=None) -> None:
         super().__init__(parent)
@@ -508,8 +507,6 @@ class QueueView(QListView):
         self._anim.setInterval(33)
         self._anim.timeout.connect(self._tick)
         self._anim.start()
-        self.selectionModel().selectionChanged.connect(
-            lambda *_: self.selectionCountChanged.emit(len(self.selectionModel().selectedRows())))
 
     def selected_ids(self) -> list[str]:
         rows = sorted(i.row() for i in self.selectionModel().selectedRows())
