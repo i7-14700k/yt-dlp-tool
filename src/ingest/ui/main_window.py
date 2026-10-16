@@ -549,7 +549,7 @@ class MainWindow(QMainWindow):
         if done:
             m.addAction("Delete file" + ("s" if len(done) > 1 or len(done[0].outputs) > 1 else ""),
                         lambda: self._delete_files(done))
-        m.exec(pos)
+        show_menu(m, pos)
 
     def _move(self, job_id: str, to: int) -> None:
         self.qm.move(job_id, to)
@@ -613,7 +613,7 @@ class MainWindow(QMainWindow):
             m.addAction("Remove from library", lambda: (self.library.remove(item_id), self.library_page.reload()))
             if it.exists:
                 m.addAction("Delete file", lambda: self._delete_library_file(it))
-            m.exec(pos)
+            show_menu(m, pos)
 
     def _delete_library_file(self, it) -> None:
         if Confirm.ask(self, "Delete this file?", it.path, ok="Delete", cancel="Keep"):
@@ -807,6 +807,11 @@ class MainWindow(QMainWindow):
             pass
         e.accept()
         QApplication.instance().quit()
+
+
+def show_menu(menu, pos: QPoint) -> None:
+    """One place that blocks on a menu, so tests can replace it."""
+    menu.exec(pos)
 
 
 def disk_free(path: Path) -> int | None:

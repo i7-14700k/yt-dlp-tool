@@ -27,6 +27,15 @@ def qapp():
     return app
 
 
+@pytest.fixture(autouse=True)
+def no_slot_exceptions(monkeypatch):
+    """Exceptions inside Qt slots are only printed; make them fail the test."""
+    caught = []
+    monkeypatch.setattr(sys, "excepthook", lambda t, v, tb: caught.append((t, v)))
+    yield
+    assert not caught, caught
+
+
 def pump(app, seconds=0.2):
     end = time.monotonic() + seconds
     while time.monotonic() < end:
@@ -201,3 +210,100 @@ def test_every_page_renders(qapp, window, tmp_path):
         pump(qapp, 0.1)
         img = window.grab()
         assert not img.isNull() and img.width() > 1000
+
+
+def _collect_menus(monkeypatch):
+    from ingest.ui import dialogs
+    menus = []
+    monkeypatch.setattr("ingest.ui.main_window.show_menu", lambda m, pos: menus.append(m))
+    monkeypatch.setattr(dialogs.LogViewer, "exec", lambda self, *a, **k: 0)
+    monkeypatch.setattr(dialogs.Confirm, "exec", lambda self, *a, **k: 0)
+    return menus
+
+
+def test_every_queue_menu_action_runs(qapp, window, monkeypatch):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QGuiApplication
+    menus = _collect_menus(monkeypatch)
+    monkeypatch.setattr("ingest.ui.main_window.reveal", lambda p: None)
+    monkeypatch.setattr("ingest.ui.main_window.QDesktopServices.openUrl", lambda u: True)
+    window._enqueue(["https://fake.test/video/menu-done", "https://fake.test/gone/menu-failed"])
+    wait_for(qapp, lambda: window.model.rowCount() == 2)
+    jobs = [window.model.job(0), window.model.job(1)]
+    wait_for(qapp, lambda: all(j.status in ("done", "failed") for j in jobs), timeout=90)
+    for job in jobs:
+        window._job_menu([job.id], QPoint(0, 0))
+        menu = menus.pop()
+        names = [a.text() for a in menu.actions() if a.text()]
+        assert names
+        for action in menu.actions():
+            if action.text() and not action.text().startswith(("Delete", "Remove", "Download again", "Inspect")):
+                action.trigger()
+                pump(qapp, 0.05)
+    window._job_menu([j.id for j in jobs], QPoint(0, 0))
+    assert menus
+    assert QGuiApplication.clipboard().text()
+
+
+def test_library_menu_actions_run(qapp, window, monkeypatch):
+    from PySide6.QtCore import QPoint
+    menus = _collect_menus(monkeypatch)
+    monkeypatch.setattr("ingest.ui.main_window.reveal", lambda p: None)
+    monkeypatch.setattr("ingest.ui.main_window.QDesktopServices.openUrl", lambda u: True)
+    window._enqueue(["https://fake.test/video/lib-menu"])
+    wait_for(qapp, lambda: window.model.rowCount() == 1)
+    job = window.model.job(0)
+    wait_for(qapp, lambda: job.status == "done", timeout=90)
+    window.show_page("library")
+    pump(qapp, 0.2)
+    item = window.library_page.model.items[0]
+    window._library_action(item.id, "more", QPoint(0, 0))
+    menu = menus.pop()
+    for action in menu.actions():
+        if action.text() and not action.text().startswith(("Delete", "Remove", "Download again")):
+            action.trigger()
+            pump(qapp, 0.05)
+    window._library_action(item.id, "reveal", QPoint(0, 0))
+    window._library_action(item.id, "open", QPoint(0, 0))
+    window._library_action(item.id, "forget", QPoint(0, 0))
+    pump(qapp, 0.1)
+    assert window.library_page.model.rowCount() == 0
+
+
+def test_big_playlist_opens_review(qapp, window):
+    window.s.playlist_confirm = 2
+    window._enqueue(["https://fake.test/playlist/5"])
+    page = window.inspect_page
+    wait_for(qapp, lambda: window.stack.currentWidget() is page and page.stack.currentWidget() is page.playlist,
+             timeout=30)
+    assert len(page.entries.entries) == 5
+    page.range.setText("2-3")
+    page.range.returnPressed.emit()
+    assert sum(page.entries.checked) == 2
+    page.p_add.click()
+    wait_for(qapp, lambda: window.model.rowCount() == 2)
+
+
+def test_engine_rows_and_badge(qapp, window):
+    from ingest.core.engines import EngineState
+    states = {k: EngineState(key=k, path="/x", version="1.0", source="managed", ok=True)
+              for k in ("ytdlp", "ffmpeg", "deno", "gallerydl", "ytdlp_nightly")}
+    window._on_engine_states(states)
+    assert window.badge.text_value == "yt-dlp 1.0"
+    states["deno"] = EngineState(key="deno")
+    window._on_engine_states(states)
+    assert window.badge.text_value == "Deno missing" and window.badge.attention
+    window._on_engine_progress("ytdlp", "Downloading", 5e6, 18e6)
+    window._on_engine_finished("ytdlp", True, "yt-dlp 2.0")
+    window._on_engine_batch(True)
+
+
+def test_suggest_cookie_fix_toast(qapp, window):
+    from ingest.core.jobs import Job
+    from ingest.core.settings import OutputOptions
+    from ingest.core.ytdlp import Network
+    job = Job(url="https://x", opts=OutputOptions(), net=Network())
+    job.status = "failed"
+    job.error = {"kind": "bot_check", "title": "t", "hint": "h", "raw": ""}
+    window._suggest_fix(job)
+    assert window.toast.isVisible() and "signed in" in window.toast.text
