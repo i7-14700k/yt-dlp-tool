@@ -67,6 +67,7 @@ class Attempt:
     cookies: bool = False
     impersonate: bool = False
     nightly: bool = False
+    check_formats: bool = False
 
 
 def cookie_args(net: Network, tool: str = "yt-dlp") -> list[str]:
@@ -182,6 +183,8 @@ def resolve_args(tools: Tools, net: Network, attempt: Attempt, url: str, opts: O
     fmt, sort = format_selection(opts)
     a = base_args(tools, net, attempt) + ["--dump-single-json", "--flat-playlist", "--no-progress"]
     a += ["--yes-playlist" if playlist else "--no-playlist"]
+    if attempt.check_formats:
+        a += ["--check-formats"]  # probe each format and keep the first that really downloads
     a += ["-f", fmt]
     if sort:
         a += ["-S", sort]

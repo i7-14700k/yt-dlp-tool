@@ -160,6 +160,10 @@ class JobFailed(Exception):
         self.failure = failure
 
 
+class _Reresolve(Exception):
+    """The chosen formats can't be downloaded; pick again."""
+
+
 class _ToolFailed(Exception):
     def __init__(self, failure: Failure) -> None:
         super().__init__(failure.title)
@@ -312,7 +316,12 @@ class Runner(threading.Thread):
             elif job.gallery:
                 files = self._gallery_download()
             else:
-                files = self._download(info)
+                try:
+                    files = self._download(info)
+                except _Reresolve:
+                    job.info_path = ""
+                    info = self._resolve()
+                    files = self._download(info)
             job.files = files
             self._convert_and_finish(info, files)
             self._set(status=Status.DONE.value, stage=Stage.NONE.value, finished=time.time(),
@@ -598,6 +607,12 @@ class Runner(threading.Thread):
             self._check_stop()
             if code != 0:
                 f = classify(tail, code)
+                if f.kind == "drm" and not self.attempt.check_formats and not job.opts.format_ids:
+                    # Some sites encrypt only certain formats: test them in order and take a clear one.
+                    self.attempt.check_formats = True
+                    self.log("-- chosen format is DRM-protected, checking the other formats")
+                    self._set(stage_text="Looking for a format without DRM")
+                    raise _Reresolve()
                 if not state["use_url"] and f.kind in ("forbidden", "network", "unavailable", "unknown"):
                     # Media URLs from the cached page data may have expired: extract fresh.
                     state["use_url"] = True

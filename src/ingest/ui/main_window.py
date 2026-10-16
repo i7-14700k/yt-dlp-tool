@@ -440,12 +440,34 @@ class MainWindow(QMainWindow):
         self.model.touch(job.id)
         if job.status == Status.DONE.value and not job.skipped:
             self.library_page.reload() if self.stack.currentWidget() is self.library_page else None
+        if job.status == Status.FAILED.value:
+            self._suggest_fix(job)
         if not self.s.notifications or self.isActiveWindow():
             return
         if job.status == Status.DONE.value:
             self._notify("Ready for editing", job.title or "Download finished")
         elif job.status == Status.FAILED.value:
             self._notify("Download failed", f"{job.title or job.url}: {(job.error or {}).get('title', '')}")
+
+    def _suggest_fix(self, job: Job) -> None:
+        """Turn the most common failures into one click, at most once a minute."""
+        kind = (job.error or {}).get("kind", "")
+        now = time.monotonic()
+        if now - getattr(self, "_last_fix_hint", 0.0) < 60:
+            return
+        if kind in ("bot_check", "login", "age", "members", "private", "rate_limit") and self.s.cookies == "off":
+            self._last_fix_hint = now
+            self.toast.show_message("This site wants you signed in", "Set up cookies",
+                                    lambda: (self.show_page("settings"), self.settings_page.jump("accounts")),
+                                    ms=6000)
+        elif kind == "cookie_read":
+            self._last_fix_hint = now
+            self.toast.show_message("The browser's cookies couldn't be read", "Choose another way",
+                                    lambda: (self.show_page("settings"), self.settings_page.jump("accounts")),
+                                    ms=6000)
+        elif kind in ("engine", "ffmpeg"):
+            self._last_fix_hint = now
+            self.toast.show_message("An engine is missing", "Install", lambda: self.show_page("setup"), ms=6000)
 
     def _notify(self, title: str, body: str) -> None:
         if not QSystemTrayIcon.isSystemTrayAvailable():
@@ -506,6 +528,10 @@ class MainWindow(QMainWindow):
             m.addAction("Inspect again", lambda: (self.inspect_page.open(one.webpage_url or one.url),
                                                   self.show_page("inspect")))
             m.addAction("Show log", lambda: LogViewer(self, one.title or one.url, one.log_path).exec())
+            if (one.error or {}).get("kind") in ("bot_check", "login", "age", "members", "private", "rate_limit",
+                                                 "cookie_read"):
+                m.addAction("Sign in with cookies…", lambda: (self.show_page("settings"),
+                                                             self.settings_page.jump("accounts")))
             if one.plan_reasons or one.report:
                 m.addAction("Why it was converted", lambda: self._explain(one))
             m.addSeparator()
