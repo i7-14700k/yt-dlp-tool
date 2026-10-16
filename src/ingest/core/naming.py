@@ -54,10 +54,13 @@ def _replace_chars(s: str) -> str:
 
 def sanitize_component(text: str, ascii_only: bool = False, max_len: int = MAX_COMPONENT) -> str:
     s = unicodedata.normalize("NFC", str(text or ""))
-    # Control characters, zero-width joiners, bidi controls and everything past U+FFFF (emoji).
+    # Control characters, zero-width joiners, bidi controls, symbols and everything past U+FFFF
+    # (emoji), plus what emoji leave behind: variation selectors (the U+FE0F in ❤️) and the keycap
+    # mark. Other combining marks stay; Devanagari and Thai need them.
     s = "".join(
         ch for ch in s
         if ord(ch) <= 0xFFFF and unicodedata.category(ch) not in ("Cc", "Cf", "Cs", "Co", "So")
+        and not 0xFE00 <= ord(ch) <= 0xFE0F and ch != "\u20e3"
         or ch in "\t "
     )
     s = _replace_chars(s)

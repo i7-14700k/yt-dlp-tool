@@ -13,6 +13,8 @@ def test_sanitize_windows_names():
     assert naming.sanitize_component("CON") == "CON_"
     assert naming.sanitize_component("  trailing dots... ") == "trailing dots"
     assert naming.sanitize_component("emoji 🔥 title ✨") == "emoji title"
+    assert naming.sanitize_component("guess it😍❤️ #fyp 1️⃣") == "guess it #fyp 1"  # no selectors left behind
+    assert naming.sanitize_component("हिन्दी शीर्षक") == "हिन्दी शीर्षक"  # combining vowel signs stay
     assert naming.sanitize_component("日本語のタイトル") == "日本語のタイトル"
     assert naming.sanitize_component("Ünïcödé", ascii_only=True) == "Unicode"
     assert naming.sanitize_component("") == "untitled"
