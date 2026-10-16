@@ -187,3 +187,27 @@ def test_outdated_engines_on_path():
     assert not too_old("ytdlp", "2026.08.19", today)
     assert too_old("ytdlp", "2025.06.30", today)
     assert not too_old("ytdlp", "garbage", today) and not too_old("deno", "1.0.0")
+
+
+def test_check_engine_file(tmp_path, ffmpeg):
+    import shutil
+    import sys
+    from pathlib import Path
+    from ingest.core.engines import EXE, check_engine_file
+    # A real FFmpeg folder, picked as the folder, as ffmpeg or as ffprobe.
+    d = tmp_path / "ff"
+    d.mkdir()
+    for name in ("ffmpeg", "ffprobe"):
+        shutil.copy(Path(ffmpeg).with_name(name + EXE), d / (name + EXE))
+    want = str(d / ("ffmpeg" + EXE))
+    for picked in (d, d / ("ffmpeg" + EXE), d / ("ffprobe" + EXE)):
+        assert check_engine_file("ffmpeg", str(picked)) == (want, "")
+    # ffmpeg without ffprobe next to it.
+    (d / ("ffprobe" + EXE)).unlink()
+    use, why = check_engine_file("ffmpeg", want)
+    assert not use and "ffprobe" in why
+    # Something that runs but isn't the engine.
+    use, why = check_engine_file("ytdlp", sys.executable)
+    assert not use and "not yt-dlp" in why
+    use, why = check_engine_file("deno", str(tmp_path / "nothing.exe"))
+    assert not use and "no deno" in why

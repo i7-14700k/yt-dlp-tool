@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (QAbstractButton, QAbstractScrollArea, QApplicatio
 
 from .. import APP_NAME
 from ..core import paths, winapi
-from ..core.engines import Engines
+from ..core.engines import CUSTOM_ATTR, Engines
 from ..core.jobs import Job, Stage, Status
 from ..core.library import Library
 from ..core.queue import QueueManager
@@ -233,6 +233,7 @@ class MainWindow(QMainWindow):
         self.tasks.finished.connect(self._on_engine_finished)
         self.tasks.batch_done.connect(self._on_engine_batch)
         self.tasks.updates.connect(self._on_engine_updates)
+        self.tasks.validated.connect(self._on_engine_validated)
 
         # ---- pages
         self.view = QueueView(self.model, self.thumbs)
@@ -660,9 +661,22 @@ class MainWindow(QMainWindow):
         self.panel.set_options(self.s.output)
 
     def _install_engines(self, keys: list[str]) -> None:
+        # Installing means "use Ingest's own copy": a path set with Locate would otherwise keep
+        # winning and the row would go on saying Custom path.
+        cleared = {}
+        for k in keys:
+            attr = CUSTOM_ATTR.get(k)
+            if attr and getattr(self.s, attr):
+                cleared[attr] = getattr(self.s, attr)
+                setattr(self.s, attr, "")
         if not self.tasks.install(keys):
+            for attr, value in cleared.items():
+                setattr(self.s, attr, value)
             self.toast.show_message("An engine install is already running")
             return
+        if cleared:
+            self.store.save()
+            self.qm.invalidate_tools()
         self.setup_page.set_busy(True)
 
     def _on_engine_progress(self, key: str, phase: str, done: float, total: float) -> None:
@@ -732,12 +746,25 @@ class MainWindow(QMainWindow):
             self._auto_update_check()
 
     def _locate_engine(self, key: str) -> None:
+        if key not in CUSTOM_ATTR:
+            return
         path = pick_engine_file(self, key)
         if not path:
             return
-        attr = {"ytdlp": "path_ytdlp", "ffmpeg": "path_ffmpeg", "deno": "path_deno", "gallerydl": "path_gallerydl"}[key]
-        setattr(self.s, attr, os.path.normpath(path))
+        for rows in (self.setup_page.rows, self.settings_page.engine_rows):
+            if key in rows:
+                rows[key].set_checking(os.path.basename(path))
+        self.tasks.validate(key, path)
+
+    def _on_engine_validated(self, key: str, path: str, note: str) -> None:
+        if not path:
+            self.toast.show_message(note)
+            self.tasks.refresh_states()  # put the rows back the way they were
+            return
+        setattr(self.s, CUSTOM_ATTR[key], os.path.normpath(path))
         self.store.save()
+        if note:
+            self.toast.show_message(note)
         self.qm.invalidate_tools()
         self.tasks.refresh_states()
         if key == "ffmpeg":

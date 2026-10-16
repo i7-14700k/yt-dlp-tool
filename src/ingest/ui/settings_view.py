@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QAbstractButton, QFileDialog, QScrollArea, QWidget
 from .. import __version__
 from ..core import paths
 from ..core.encoders import HW_NAMES
-from ..core.engines import SPECS
+from ..core.engines import SETUP_KEYS
 from ..core.settings import Settings
 from . import theme as T
 from .kit import (Button, Label, Segmented, Select, Stepper, TextField, Toggle, _Hover, focus_mark, hbox, kbd_focus,
@@ -300,7 +300,7 @@ class SettingsPage(QWidget):
         self._sync_cookie_rows()
 
         g = self._group("engines", "Engines")
-        self.engine_rows = {k: EngineRow(k) for k in SPECS}
+        self.engine_rows = {k: EngineRow(k) for k in SETUP_KEYS}  # the nightly slot manages itself
         for r in self.engine_rows.values():
             r.install.connect(lambda k: self.engine_install.emit([k]))
             r.locate.connect(self.engine_locate.emit)

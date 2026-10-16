@@ -336,3 +336,20 @@ def test_format_table_keyboard(qapp):
     for key in (Qt.Key_Down, Qt.Key_Down, Qt.Key_Down, Qt.Key_Home, Qt.Key_Up, Qt.Key_End):
         QTest.keyClick(t, key)
     assert got == ["a", "b", "auto", "b"]
+
+
+def test_locate_refuses_the_wrong_program_and_install_replaces_a_custom_path(qapp, window, monkeypatch):
+    from ingest.ui import main_window as mw
+    before = window.s.path_ffmpeg
+    shown = []
+    monkeypatch.setattr(window.toast, "show_message", lambda text, *a, **k: shown.append(text))
+    monkeypatch.setattr(mw, "pick_engine_file", lambda parent, key: sys.executable)  # runs, but isn't FFmpeg
+    window._locate_engine("ffmpeg")
+    wait_for(qapp, lambda: shown, timeout=30)
+    assert "not FFmpeg" in shown[-1]
+    assert window.s.path_ffmpeg == before  # nothing saved
+    # Install means "use Ingest's copy", so the located path must stop winning.
+    monkeypatch.setattr(window.tasks, "install", lambda keys: True)
+    window._install_engines(["ffmpeg"])
+    assert window.s.path_ffmpeg == ""
+    assert list(window.settings_page.engine_rows) == ["ytdlp", "ffmpeg", "deno", "gallerydl"]

@@ -7,7 +7,7 @@ import time
 
 from PySide6.QtCore import QObject, Signal
 
-from ..core.engines import SPECS, Cancelled, Engines, EngineState, InstallError
+from ..core.engines import SPECS, Cancelled, Engines, EngineState, InstallError, check_engine_file
 
 
 class EngineTasks(QObject):
@@ -16,6 +16,7 @@ class EngineTasks(QObject):
     batch_done = Signal(bool)                     # all ok
     states = Signal(dict)                         # key -> EngineState
     updates = Signal(dict)                        # key -> (available, latest)
+    validated = Signal(str, str, str)             # key, path to use ("" if refused), note
 
     def __init__(self, engines: Engines, parent=None) -> None:
         super().__init__(parent)
@@ -78,6 +79,17 @@ class EngineTasks(QObject):
                 out = dict(pool.map(one, SPECS))
             self.states.emit(out)
         threading.Thread(target=work, name="engine-states", daemon=True).start()
+
+    def validate(self, key: str, path: str) -> None:
+        """Check a file picked with Locate without blocking the window (a frozen yt-dlp.exe
+        can take seconds to answer --version the first time)."""
+        def work():
+            try:
+                use, note = check_engine_file(key, path)
+            except Exception as e:
+                use, note = "", f"Couldn't check that file: {e}"
+            self.validated.emit(key, use, note)
+        threading.Thread(target=work, name="engine-validate", daemon=True).start()
 
     def check_updates(self, keys: list[str] | None = None) -> None:
         def work():

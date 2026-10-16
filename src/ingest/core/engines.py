@@ -65,6 +65,7 @@ SPECS: dict[str, Spec] = {s.key: s for s in [
          "Fetched on its own when a site breaks, used only for that retry", "18 MB"),
 ]}
 SETUP_KEYS = ("ytdlp", "ffmpeg", "deno", "gallerydl")
+CUSTOM_ATTR = {"ytdlp": "path_ytdlp", "ffmpeg": "path_ffmpeg", "deno": "path_deno", "gallerydl": "path_gallerydl"}
 
 _GH = "https://github.com"
 _FFB = f"{_GH}/yt-dlp/FFmpeg-Builds/releases/download/latest"
@@ -257,6 +258,44 @@ def too_old(key: str, version: str, today: date | None = None) -> str:
     return ""
 
 
+def check_engine_file(key: str, path: str) -> tuple[str, str]:
+    """Is the file someone picked with Locate really this engine?
+
+    Returns (path to use, note). An empty path means it was refused and the
+    note says why; otherwise the note is an optional warning. A folder, or
+    ffprobe picked instead of ffmpeg, resolves to the right file next to it.
+    """
+    spec = SPECS[key]
+    p = Path(path)
+    if p.is_dir():
+        p = p / spec.files[0]
+    elif key == "ffmpeg" and p.name.lower().startswith("ffprobe"):
+        p = p.with_name(spec.files[0])
+    if not p.is_file():
+        return "", f"There's no {spec.files[0]} there."
+    flag = "-version" if key == "ffmpeg" else "--version"
+    code, out = run_capture([str(p), flag], timeout=60)
+    first = out.strip().splitlines()[0].strip() if out.strip() else ""
+    if not first:
+        return "", f"{p.name} didn't run. Pick {spec.files[0]} itself."
+    looks_right = code == 0 and {
+        "ffmpeg": first.lower().startswith("ffmpeg version"),
+        "ytdlp": bool(re.match(r"\d{4}\.\d{1,2}\.\d{1,2}", first)),
+        "deno": first.lower().startswith("deno "),
+        "gallerydl": bool(re.match(r"\d+\.\d+", first)),
+    }.get(key, True)
+    if not looks_right:
+        said = first.split(" Copyright")[0][:60]
+        return "", f"That's not {spec.name}: {p.name} says \u201c{said}\u201d."
+    if key == "ffmpeg" and not p.with_name(f"ffprobe{EXE}").is_file():
+        return "", f"ffprobe{EXE} has to be next to ffmpeg{EXE}; Ingest needs both."
+    version = parse_version(key, out)
+    why = too_old(key, version)
+    if why and key == "ffmpeg":
+        return "", f"FFmpeg {version} is too old: Ingest needs 7 or newer."
+    return str(p), (f"yt-dlp {version} is {why.split(':')[0]}; sites may fail until it's updated." if why else "")
+
+
 class Engines:
     """Thread-safe registry of engine locations and versions."""
 
@@ -277,9 +316,8 @@ class Engines:
             return {}
 
     def _custom(self, key: str) -> str:
-        s = self._settings()
-        return {"ytdlp": s.path_ytdlp, "ffmpeg": s.path_ffmpeg, "deno": s.path_deno,
-                "gallerydl": s.path_gallerydl}.get(key, "") or ""
+        attr = CUSTOM_ATTR.get(key)
+        return (getattr(self._settings(), attr, "") or "") if attr else ""
 
     def locate(self, key: str) -> tuple[str, str]:
         """Return (path to primary executable, source) or ("", "")."""
@@ -346,7 +384,7 @@ class Engines:
         if key == "ffmpeg" and not self.tools().ffprobe:
             st.error = "ffprobe is missing next to ffmpeg"
         st.version = self.version(key, refresh)
-        if source == "system" and not st.error:
+        if source in ("system", "custom") and not st.error:
             st.error = too_old(key, st.version)
             st.extra["too_old"] = bool(st.error)
         st.ok = bool(st.version) and not st.error

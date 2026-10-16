@@ -71,6 +71,7 @@ class EngineRow(QWidget):
 
     def set_state(self, st: EngineState) -> None:
         self.action.setEnabled(True)
+        self.status.setToolTip(st.path)
         if st.path:
             self.version.setText(st.version or "")
             src = SOURCE_LABEL.get(st.source, st.source)
@@ -89,6 +90,11 @@ class EngineRow(QWidget):
             self.action.set_kind("primary" if SPECS[self.key].required else "secondary")
         self.status.set_color(T.FG if (not st.path and SPECS[self.key].required) or st.update
                               or st.extra.get("too_old") else T.FG2)
+
+    def set_checking(self, name: str) -> None:
+        self.status.setText(f"Checking {name}…")
+        self.status.set_color(T.FG2)
+        self.action.setEnabled(False)
 
     def set_progress(self, phase: str, done: float, total: float) -> None:
         self.bar.show()
@@ -169,6 +175,7 @@ class SetupPage(QWidget):
 
 def pick_engine_file(parent, key: str) -> str:
     spec = SPECS[key]
-    filt = f"{spec.name} ({spec.files[0]})" if spec.files[0].endswith(".exe") else "All files (*)"
-    path, _ = QFileDialog.getOpenFileName(parent, f"Locate {spec.name}", "", filt)
+    # Any program is accepted (yt-dlp_x86.exe, a renamed build); the file is checked afterwards.
+    filt = "Programs (*.exe);;All files (*)" if spec.files[0].endswith(".exe") else "All files (*)"
+    path, _ = QFileDialog.getOpenFileName(parent, f"Locate {spec.name} ({spec.files[0]})", "", filt)
     return path
