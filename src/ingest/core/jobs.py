@@ -34,7 +34,7 @@ from .probe import MediaInfo, ProbeError, grid_fit, measure_timing, probe
 from .procs import Proc
 from .settings import OutputOptions, from_dict, to_dict
 from .ytdlp import (Attempt, Network, Tools, download_args, gallery_args, load_info, parse_file,
-                    parse_progress, resolve_args, selection_from_info)
+                    parse_progress, prefer_codec, resolve_args, selection_from_info)
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".heic", ".heif", ".bmp", ".tif", ".tiff",
               ".jxl", ".jfif"}
@@ -531,6 +531,12 @@ class Runner(threading.Thread):
 
         if info.get("live_status") == "is_upcoming":
             raise JobFailed(Failure("upcoming", "Not live yet", "Queue it again when the stream starts."))
+        o = job.opts
+        if not o.format_ids and o.prefer_compatible and o.profile in ("h264", "hevc"):
+            fam = "h264" if o.profile == "h264" else "hevc"
+            swapped = prefer_codec(info, fam)
+            if swapped:
+                self.log(f"-- format {swapped}: the same picture in {conform.codec_name(fam)}, so it can be copied")
         sel = selection_from_info(info)
         thumb = info.get("thumbnail") or ""
         if not thumb and info.get("thumbnails"):

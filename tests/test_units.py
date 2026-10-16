@@ -158,3 +158,21 @@ def test_protocol_links():
     assert expand_protocol_links(["ingest://add?url=https%3A%2F%2Fyoutu.be%2Fabc%3Ft%3D5"]) == ["https://youtu.be/abc?t=5"]
     assert expand_protocol_links(["ingest:https%3A%2F%2Fx.com%2Fa"]) == ["https://x.com/a"]
     assert expand_protocol_links(["https://plain"]) == ["https://plain"]
+
+
+def test_prefer_codec_when_only_the_reported_rate_differs():
+    from ingest.core.ytdlp import prefer_codec
+    def fmt(fid, vc, h, fps, tbr, w=None):
+        return {"format_id": fid, "vcodec": vc, "acodec": "none", "height": h, "width": w or h * 16 // 9,
+                "fps": fps, "tbr": tbr}
+    audio = {"format_id": "a", "vcodec": "none", "acodec": "mp4a.40.2"}
+    hevc, avc = fmt("30066", "hev1.1.6.L120", 720, 24.39, 1016), fmt("30064", "avc1.64001F", 720, 23.81, 1682)
+    info = {"formats": [avc, hevc, fmt("30080", "avc1.640032", 1080, 23.81, 3000), audio],
+            "requested_formats": [hevc, audio], "format_id": "30066+a"}
+    assert prefer_codec(info, "h264") == "30064"  # Bilibili: one 24 fps stream, two reported rates
+    assert info["format_id"] == "30064+a" and info["requested_formats"][0] is avc
+    assert prefer_codec(info, "h264") is None  # already H.264
+    # A real difference stays: 60 fps VP9 isn't traded for 30 fps H.264, nor 4K for 1080p.
+    vp9 = fmt("303", "vp9", 1080, 60, 4000)
+    info = {"formats": [fmt("137", "avc1.640028", 1080, 30, 4000), vp9, audio], "requested_formats": [vp9, audio]}
+    assert prefer_codec(info, "h264") is None

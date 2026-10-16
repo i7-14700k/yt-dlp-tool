@@ -336,6 +336,49 @@ def _codec_family(c: str | None) -> str:
     return c.split(".")[0]
 
 
+def prefer_codec(info: dict, family: str) -> str | None:
+    """Swap the chosen video for the same picture in `family`, when only the site's numbers differ.
+
+    yt-dlp sorts by frame rate before codec, and some sites report one stream's
+    rate inexactly per codec (Bilibili lists the same 24 fps 720p as 23.81 in
+    AVC and 24.39 in HEVC), so the codec Premiere copies loses the tie. A swap
+    needs the same frame size and dynamic range and a rate within 5 %.
+    Returns the new format id, or None when nothing changed.
+    """
+    req = info.get("requested_formats")
+    if not req:
+        return None
+    vi = next((i for i, f in enumerate(req)
+               if f.get("vcodec") not in (None, "none") and f.get("acodec") in (None, "none")), None)
+    if vi is None:
+        return None
+    cur = req[vi]
+    if _codec_family(cur.get("vcodec")) == family or not cur.get("height"):
+        return None
+    fps = float(cur.get("fps") or 0)
+    best = None
+    for f in info.get("formats") or []:
+        if f.get("acodec") not in (None, "none") or _codec_family(f.get("vcodec")) != family:
+            continue
+        if f.get("height") != cur.get("height") or (f.get("width") or 0) != (cur.get("width") or 0):
+            continue
+        if (f.get("dynamic_range") or "SDR") != (cur.get("dynamic_range") or "SDR"):
+            continue
+        ffps = float(f.get("fps") or 0)
+        if fps and ffps and abs(ffps - fps) / fps > 0.05:
+            continue
+        if best is None or (f.get("tbr") or 0) > (best.get("tbr") or 0):
+            best = f
+    if best is None:
+        return None
+    req[vi] = best
+    info["format_id"] = "+".join(str(f.get("format_id")) for f in req)
+    for k in ("vcodec", "fps", "tbr", "vbr", "dynamic_range"):
+        if k in best:
+            info[k] = best[k]
+    return str(best.get("format_id"))
+
+
 def selection_from_info(info: dict) -> Selection:
     fmts = info.get("requested_formats") or ([info] if info.get("format_id") else [])
     ids = info.get("format_id") or "+".join(f.get("format_id", "") for f in fmts)
