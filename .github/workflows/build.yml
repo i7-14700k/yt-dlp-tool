@@ -85,6 +85,16 @@ jobs:
             $r.jobs | ForEach-Object { Write-Output $_.log }
           }
           if (-not $ok) { throw "no end-to-end download succeeded" }
+      - name: Restamp check with a Twitch clip (informational; sites come and go)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $env:INGEST_HOME = "$env:RUNNER_TEMP\ingest-home"
+          $p = Start-Process -FilePath dist\Ingest\Ingest.exe -Wait -PassThru -ArgumentList @(
+            "--e2e", "https://clips.twitch.tv/FaintLightGullWholeWheat", "--report", "$env:RUNNER_TEMP\e2e-twitch.json")
+          $r = Get-Content "$env:RUNNER_TEMP\e2e-twitch.json" -Raw | ConvertFrom-Json
+          foreach ($j in $r.jobs) { Write-Output "$($j.status): $($j.title) [$($j.plan)]" }
+          if ($p.ExitCode -ne 0) { $r.jobs | ForEach-Object { Write-Output $_.log }; throw "Twitch clip failed" }
       - name: Installer
         shell: pwsh
         run: |
@@ -109,3 +119,4 @@ jobs:
             ${{ runner.temp }}/screens
             ${{ runner.temp }}/selftest.json
             ${{ runner.temp }}/e2e.json
+            ${{ runner.temp }}/e2e-twitch.json
