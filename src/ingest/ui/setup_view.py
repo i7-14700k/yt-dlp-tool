@@ -51,13 +51,14 @@ class EngineRow(QWidget):
         self.name = Label(spec.name, 14, 600)
         self.purpose = Label(spec.purpose, 12, 400, T.FG2)
         self.version = Label("", 12, 400, T.FG3, mono=True)
-        self.status = Label("", 12, 400, T.FG2)
+        self.status = Label("Checking…", 12, 400, T.FG3)
         self.bar = MiniBar()
         self.bar.hide()
         self.action = Button("Install", "secondary")
         self.action.clicked.connect(lambda: self.install.emit(self.key))
         self.locate_btn = Button("Locate", "ghost")
         self.locate_btn.clicked.connect(lambda: self.locate.emit(self.key))
+        self.action.setEnabled(False)  # until the first state arrives
         left = vbox(hbox(self.name, self.version, None, spacing=10), self.purpose, self.status, self.bar,
                     spacing=4)
         lay = hbox(left, None, self.locate_btn, self.action, spacing=8, margins=(16, 14, 14, 14))
@@ -69,6 +70,7 @@ class EngineRow(QWidget):
         rounded(p, QRectF(self.rect()), T.R_LG, T.S1)
 
     def set_state(self, st: EngineState) -> None:
+        self.action.setEnabled(True)
         if st.path:
             self.version.setText(st.version or "")
             src = SOURCE_LABEL.get(st.source, st.source)

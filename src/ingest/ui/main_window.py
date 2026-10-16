@@ -250,7 +250,9 @@ class MainWindow(QMainWindow):
         self.queue_page.resume_all.clicked.connect(self.qm.resume_all)
         self.queue_page.clear.clicked.connect(self.qm.clear_finished)
 
-        self.inspect_page = InspectPage(self.thumbs, self.qm.tools, self._network, self.s.output)
+        self.inspect_page = InspectPage(self.thumbs, self.qm.tools, self._network, self.s.output,
+                                        get_nightly=self.qm.nightly_ytdlp,
+                                        allow_nightly=lambda: self.s.nightly_fallback and self.s.channel != "nightly")
         self.inspect_page.back.connect(lambda: self.show_page("queue"))
         self.inspect_page.add.connect(self._add_from_inspect)
         self.library_page = LibraryPage(library, self.thumbs)

@@ -22,11 +22,14 @@ from .thumbs import ThumbCache, draw_thumb
 
 class Resolver(QObject):
     done = Signal(object, object)  # info dict | None, Failure | None
+    status = Signal(str)
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, get_nightly=None, allow_nightly=None) -> None:
         super().__init__(parent)
         self._proc: Proc | None = None
         self._gen = 0
+        self.get_nightly = get_nightly or (lambda: "")
+        self.allow_nightly = allow_nightly or (lambda: False)
 
     def start(self, url: str, playlist: bool, tools: Tools, net: Network, opts: OutputOptions) -> None:
         self.cancel()
@@ -45,7 +48,7 @@ class Resolver(QObject):
             return
         attempt = Attempt()
         failure = None
-        for _ in range(3):
+        for _ in range(4):
             proc = Proc(resolve_args(tools, net, attempt, url, opts, playlist), merge_stderr=False)
             self._proc = proc
             raw = proc.read_all()
@@ -66,6 +69,16 @@ class Resolver(QObject):
             if failure.kind in ("forbidden", "impersonate") and net.impersonate != "off" and not attempt.impersonate:
                 attempt.impersonate = True
                 continue
+            if failure.retry_with == "update" and not attempt.nightly and self.allow_nightly():
+                self.status.emit("Site changed, trying yt-dlp nightly")
+                path = self.get_nightly()
+                if gen != self._gen:
+                    return
+                if path:
+                    attempt.nightly = True
+                    tools = Tools(ytdlp=path, ffmpeg=tools.ffmpeg, ffprobe=tools.ffprobe, deno=tools.deno,
+                                  gallerydl=tools.gallerydl)
+                    continue
             break
         if gen == self._gen:
             self.done.emit(None, failure)
@@ -355,7 +368,8 @@ class InspectPage(QWidget):
     back = Signal()
     add = Signal(list, object, bool, list)  # urls, opts, playlist-mode, meta
 
-    def __init__(self, thumbs: ThumbCache, get_tools, get_net, defaults: OutputOptions, parent=None) -> None:
+    def __init__(self, thumbs: ThumbCache, get_tools, get_net, defaults: OutputOptions, parent=None,
+                 get_nightly=None, allow_nightly=None) -> None:
         super().__init__(parent)
         self.thumbs = thumbs
         self.get_tools = get_tools
@@ -364,8 +378,9 @@ class InspectPage(QWidget):
         self.opts = copy_options(defaults)
         self.url = ""
         self.info: dict | None = None
-        self.resolver = Resolver(self)
+        self.resolver = Resolver(self, get_nightly, allow_nightly)
         self.resolver.done.connect(self._on_done)
+        self.resolver.status.connect(self._on_status)  # bound method: queued onto the GUI thread
 
         back = Button("Queue", "ghost", icon="chevron-left")
         back.clicked.connect(self._back)
@@ -518,6 +533,9 @@ class InspectPage(QWidget):
     def _back(self) -> None:
         self.resolver.cancel()
         self.back.emit()
+
+    def _on_status(self, text: str) -> None:
+        self.loading_text.setText(text)
 
     def _on_done(self, info: dict | None, failure: Failure | None, children: list[dict] | None = None) -> None:
         if failure is not None or info is None:

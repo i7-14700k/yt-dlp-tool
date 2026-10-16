@@ -65,13 +65,17 @@ class EngineTasks(QObject):
             self.refresh_states()
 
     def refresh_states(self) -> None:
+        def one(key: str) -> tuple[str, EngineState]:
+            try:
+                return key, self.engines.state(key, refresh=True)
+            except Exception as e:
+                return key, EngineState(key=key, error=str(e))
+
         def work():
-            out: dict[str, EngineState] = {}
-            for key in SPECS:
-                try:
-                    out[key] = self.engines.state(key, refresh=True)
-                except Exception as e:
-                    out[key] = EngineState(key=key, error=str(e))
+            # Each --version starts a frozen Python or a big binary; ask them all at once.
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=len(SPECS)) as pool:
+                out = dict(pool.map(one, SPECS))
             self.states.emit(out)
         threading.Thread(target=work, name="engine-states", daemon=True).start()
 

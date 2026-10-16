@@ -1,6 +1,5 @@
 """Queue behaviour against a fake yt-dlp: playlists, pause/resume, cancel, cookie retry, persistence."""
 
-import os
 import stat
 import subprocess
 import sys
