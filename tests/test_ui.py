@@ -412,3 +412,21 @@ def test_log_viewer_shows_whole_lines_while_the_log_grows(qapp, tmp_path, monkey
     lv._poll()
     assert lv.text.toPlainText() == "first line\nsecond line 日 done\nthird"
     lv.close()
+
+
+def test_cancel_asks_before_throwing_away_a_download(qapp, window, monkeypatch):
+    from ingest.ui.dialogs import Confirm
+    asked = []
+    answer = {"v": False}
+    monkeypatch.setattr(Confirm, "ask", staticmethod(lambda *a, **k: (asked.append(a[1]), answer["v"])[1]))
+    window._enqueue(["https://fake.test/video/keepme?slow"])
+    wait_for(qapp, lambda: window.model.rowCount() == 1)
+    job = window.model.job(0)
+    wait_for(qapp, lambda: job.stage == "download" and job.dl_progress > 0.05, timeout=30)
+    window.view.action.emit(job.id, "cancel")
+    assert asked and job.status == "active"  # "Keep" leaves it running
+    window.view.remove_many.emit([job.id])
+    assert len(asked) == 2 and window.qm.get(job.id) is not None
+    answer["v"] = True
+    window.view.action.emit(job.id, "cancel")
+    wait_for(qapp, lambda: job.status == "canceled", timeout=30)

@@ -480,6 +480,7 @@ class QueueView(QListView):
     action = Signal(str, str)          # job id, action
     opened = Signal(str)
     context = Signal(list, QPoint)     # job ids, global pos
+    remove_many = Signal(list)         # job ids (Delete key): confirmed once for the batch
     selectionCountChanged = Signal(int)
 
     def __init__(self, model: QueueModel, thumbs: ThumbCache, parent=None) -> None:
@@ -608,8 +609,7 @@ class QueueView(QListView):
     def keyPressEvent(self, e) -> None:  # noqa: N802
         ids = self.selected_ids()
         if ids and e.key() in (Qt.Key_Delete, Qt.Key_Backspace):
-            for jid in ids:
-                self.action.emit(jid, "remove")
+            self.remove_many.emit(ids)
             return
         if ids and e.key() == Qt.Key_Space:
             for jid in ids:

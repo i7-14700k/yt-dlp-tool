@@ -251,6 +251,7 @@ class MainWindow(QMainWindow):
         self.view.action.connect(self._job_action)
         self.view.opened.connect(self._open_job)
         self.view.context.connect(self._job_menu)
+        self.view.remove_many.connect(self._remove_jobs)
         self.panel = OutputPanel(self.s.output, self.s.recent_dirs)
         self.panel.changed.connect(self._save_settings)
         self.queue_page = QueuePage(self.view, self.panel)
@@ -501,9 +502,10 @@ class MainWindow(QMainWindow):
         elif action in ("resume", "retry"):
             self.qm.resume(job_id)
         elif action == "cancel":
-            self.qm.cancel(job_id)
+            if self._confirm_discard([job]):
+                self.qm.cancel(job_id)
         elif action == "remove":
-            self.qm.remove([job_id])
+            self._remove_jobs([job_id])
         elif action == "finish":
             self.qm.finish_live(job_id)
         elif action == "log":
@@ -557,11 +559,30 @@ class MainWindow(QMainWindow):
                                                                    self.s.output, confirmed=True, force=True))
         m.addAction("Move to top", lambda: [self._move(j.id, 0) for j in reversed(jobs)])
         m.addSeparator()
-        m.addAction("Remove from queue", lambda: self.qm.remove([j.id for j in jobs]))
+        m.addAction("Remove from queue", lambda: self._remove_jobs([j.id for j in jobs]))
         if done:
             m.addAction("Delete file" + ("s" if len(done) > 1 or len(done[0].outputs) > 1 else ""),
                         lambda: self._delete_files(done))
         show_menu(m, pos)
+
+    def _confirm_discard(self, jobs: list[Job]) -> bool:
+        """Canceling or removing throws away what's been downloaded; ask when that's real work."""
+        working = [j for j in jobs if j.status in (Status.ACTIVE.value, Status.PAUSED.value)
+                   and (j.dl_progress > 0.01 or j.stage in (Stage.CONVERT_WAIT.value, Stage.CONVERT.value,
+                                                            Stage.VERIFY.value))]
+        if not working:
+            return True
+        size = sum(float(j.downloaded or 0) for j in working)
+        n = len(working)
+        so_far = f" ({human_bytes(size)})" if size > 0 else ""
+        return Confirm.ask(self, "Cancel this download?" if n == 1 else f"Cancel {n} downloads?",
+                           f"What's been downloaded so far{so_far} is deleted. Pause keeps it.",
+                           ok="Cancel download" if n == 1 else "Cancel downloads", cancel="Keep")
+
+    def _remove_jobs(self, ids: list[str]) -> None:
+        jobs = [j for j in (self.qm.get(i) for i in ids) if j is not None]
+        if jobs and self._confirm_discard(jobs):
+            self.qm.remove([j.id for j in jobs])
 
     def _move(self, job_id: str, to: int) -> None:
         self.qm.move(job_id, to)
