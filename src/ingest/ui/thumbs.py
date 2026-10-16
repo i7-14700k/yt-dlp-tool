@@ -12,6 +12,7 @@ from PySide6.QtGui import QImage, QImageReader, QPainter, QPainterPath, QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkProxy, QNetworkReply, QNetworkRequest
 
 from ..core import paths
+from ..core.util import normalize_proxy
 
 THUMB_W, THUMB_H = 320, 180
 
@@ -68,6 +69,7 @@ class ThumbCache(QObject):
         self._local_done.connect(self._on_local)
 
     def set_proxy(self, proxy_url: str) -> None:
+        proxy_url = normalize_proxy(proxy_url)
         if not proxy_url:
             self._nam.setProxy(QNetworkProxy(QNetworkProxy.DefaultProxy))
             return

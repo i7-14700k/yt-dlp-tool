@@ -269,3 +269,26 @@ def test_playlist_ranges():
     assert parse_ranges("10-", 12) == {10, 11, 12} and parse_ranges("-2", 12) == {1, 2}
     assert parse_ranges("20-30, 0, a,b", 12) == set()
     assert parse_ranges("", 12) == set()
+
+
+def test_typed_options_reach_yt_dlp_intact():
+    from ingest.core.util import normalize_country, normalize_proxy, normalize_rate, split_args
+    # Quotes group and disappear on every OS; Windows paths and URL fragments survive.
+    assert split_args('--extractor-args "youtube:player_client=tv" --referer https://a.b/#x') == [
+        "--extractor-args", "youtube:player_client=tv", "--referer", "https://a.b/#x"]
+    assert split_args(r'-o "C:\Users\Me Too\%(title)s.%(ext)s"') == ["-o", r"C:\Users\Me Too\%(title)s.%(ext)s"]
+    assert split_args('--foo "unclosed') == ["--foo", '"unclosed']
+    assert normalize_proxy("127.0.0.1:8080") == "http://127.0.0.1:8080"
+    assert normalize_proxy("socks5://h:1080") == "socks5://h:1080" and normalize_proxy(" ") == ""
+    assert [normalize_rate(x) for x in ("5M", "5 mb", "800k", "1,5 MB/s", "2.5G", "abc", "0", "")] == [
+        "5M", "5M", "800K", "1.5M", "2.5G", "", "", ""]
+    assert [normalize_country(x) for x in ("de", " US ", "Germany", "")] == ["DE", "US", "", ""]
+
+
+def test_network_from_settings_normalizes():
+    from ingest.core.settings import Settings
+    from ingest.core.ytdlp import Network
+    s = Settings()
+    s.proxy, s.rate_limit, s.geo_country = "10.0.0.1:3128", "5 MB/s", "Germany"
+    n = Network.from_settings(s, "")
+    assert (n.proxy, n.rate_limit, n.geo_country) == ("http://10.0.0.1:3128", "5M", "")

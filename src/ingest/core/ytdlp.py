@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import json
-import shlex
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .settings import OutputOptions, Settings
+from .util import normalize_country, normalize_proxy, normalize_rate, split_args
 
 PROGRESS_PREFIX = "@@P "
 FILE_PREFIX = "@@F "
@@ -49,11 +48,13 @@ class Network:
 
     @classmethod
     def from_settings(cls, s: Settings, cache_dir: str) -> "Network":
-        return cls(proxy=s.proxy, impersonate=s.impersonate, force_ipv4=s.force_ipv4, geo_country=s.geo_country,
-                   insecure=s.insecure, cookies=s.cookies, cookies_browser=s.cookies_browser,
-                   cookies_profile=s.cookies_profile, cookies_file=s.cookies_file,
-                   cookies_always=s.cookies_always, retries=s.retries, fragments=s.fragments,
-                   rate_limit=s.rate_limit, extra_args=s.extra_args, cache_dir=cache_dir)
+        # Typed values are normalized here, so a stray "5 MB" or "Germany" can't fail every download.
+        return cls(proxy=normalize_proxy(s.proxy), impersonate=s.impersonate, force_ipv4=s.force_ipv4,
+                   geo_country=normalize_country(s.geo_country), insecure=s.insecure, cookies=s.cookies,
+                   cookies_browser=s.cookies_browser, cookies_profile=s.cookies_profile.strip(),
+                   cookies_file=s.cookies_file.strip(), cookies_always=s.cookies_always, retries=s.retries,
+                   fragments=s.fragments, rate_limit=normalize_rate(s.rate_limit), extra_args=s.extra_args,
+                   cache_dir=cache_dir)
 
     @property
     def has_cookies(self) -> bool:
@@ -82,12 +83,8 @@ def cookie_args(net: Network, tool: str = "yt-dlp") -> list[str]:
 
 
 def split_extra(text: str) -> list[str]:
-    if not text.strip():
-        return []
-    try:
-        return shlex.split(text, posix=sys.platform != "win32")
-    except ValueError:
-        return text.split()
+    # Non-POSIX shlex kept the quotes on Windows: --extractor-args "youtube:..." arrived quoted.
+    return split_args(text)
 
 
 def base_args(tools: Tools, net: Network, attempt: Attempt) -> list[str]:

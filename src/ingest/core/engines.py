@@ -35,6 +35,7 @@ from typing import Callable
 from .. import __version__
 from . import paths
 from .procs import run_capture
+from .util import normalize_proxy
 from .ytdlp import Tools
 
 IS_WINDOWS = sys.platform == "win32"
@@ -126,6 +127,7 @@ class Cancelled(Exception):
 
 def _opener(proxy: str = "") -> urllib.request.OpenerDirector:
     handlers: list = []
+    proxy = normalize_proxy(proxy)
     if proxy:
         handlers.append(urllib.request.ProxyHandler({"http": proxy, "https": proxy}))
     return urllib.request.build_opener(*handlers)

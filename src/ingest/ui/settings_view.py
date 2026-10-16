@@ -13,6 +13,7 @@ from ..core import paths
 from ..core.encoders import HW_NAMES
 from ..core.engines import SETUP_KEYS
 from ..core.settings import Settings
+from ..core.util import normalize_country, normalize_proxy, normalize_rate
 from . import theme as T
 from .kit import (Button, Label, Segmented, Select, Stepper, TextField, Toggle, _Hover, focus_mark, hbox, kbd_focus,
                   mix, rounded, vbox)
@@ -186,11 +187,21 @@ class SettingsPage(QWidget):
         st.valueChanged.connect(lambda v: (setattr(self.s, attr, v), self._save()))
         return st
 
-    def _bind_text(self, attr: str, placeholder: str, width: int = 280, mono: bool = True, obj=None) -> TextField:
+    def _bind_text(self, attr: str, placeholder: str, width: int = 280, mono: bool = True, obj=None,
+                   normalize=None) -> TextField:
         obj = obj or self.s
         f = TextField(str(getattr(obj, attr)), placeholder, mono=mono)
         f.setFixedWidth(width)
-        f.editingFinished.connect(lambda: (setattr(obj, attr, f.text().strip()), self._save()))
+
+        def apply():
+            value = f.text().strip()
+            if normalize is not None:
+                value = normalize(value)
+                if value != f.text():
+                    f.setText(value)  # show what will actually be used ("5 mb" -> "5M", junk -> empty)
+            setattr(obj, attr, value)
+            self._save()
+        f.editingFinished.connect(apply)
         return f
 
     def _group(self, key: str, title: str) -> _Group:
@@ -223,7 +234,7 @@ class SettingsPage(QWidget):
               "Each conversion uses most of a CPU or a GPU encoder session. 1 is right for most PCs.")
         g.row("Fragments at once", self._bind_stepper("fragments", 1, 16),
               "For HLS and DASH streams. Higher is faster on fast connections.")
-        g.row("Speed limit", self._bind_text("rate_limit", "No limit", 180),
+        g.row("Speed limit", self._bind_text("rate_limit", "No limit", 180, normalize=normalize_rate),
               "Bytes per second, per download, like 5M or 800K.")
         g.row("Links with a video and a playlist", self._bind_seg(
             "playlist_links", [("video", "Just the video"), ("playlist", "Whole playlist")], width=260))
@@ -267,13 +278,15 @@ class SettingsPage(QWidget):
               "For WAV, ProRes and DNxHR audio.")
 
         g = self._group("network", "Network")
-        g.row("Proxy", self._bind_text("proxy", "http://host:port or socks5://host:port", 320),
+        g.row("Proxy", self._bind_text("proxy", "http://host:port or socks5://host:port", 320,
+                                       normalize=normalize_proxy),
               "Used for downloads, engine updates and thumbnails. Empty uses the system setting.")
         g.row("Browser impersonation", self._bind_seg("impersonate", [("auto", "When needed"), ("always", "Always"),
                                                                       ("off", "Off")], width=300),
               "Retries as Chrome when a site blocks yt-dlp (Cloudflare, HTTP 403).")
         g.row("Force IPv4", self._bind_toggle("force_ipv4"), "Helps on networks with broken IPv6.")
-        g.row("Pretend to be in country", self._bind_text("geo_country", "e.g. US, DE", 120),
+        g.row("Pretend to be in country", self._bind_text("geo_country", "e.g. US, DE", 120,
+                                                          normalize=normalize_country),
               "Two-letter code sent as X-Forwarded-For. Works on some sites, not all.")
         g.row("Skip TLS certificate checks", self._bind_toggle("insecure"),
               "Only for networks that intercept HTTPS. Turn it back off afterwards.")

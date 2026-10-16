@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+import shlex
 from urllib.parse import urlparse
 
 _UNITS = ["B", "KB", "MB", "GB", "TB"]
@@ -185,3 +186,41 @@ def expand_protocol_links(args: list[str]) -> list[str]:
         else:
             out.append(a)
     return out
+
+
+def split_args(text: str) -> list[str]:
+    """Split typed options like a shell, the same on every OS.
+
+    Quotes group and are removed; backslashes are literal, so Windows paths
+    survive; # isn't a comment, so URLs with fragments do too.
+    """
+    if not (text or "").strip():
+        return []
+    lx = shlex.shlex(text, posix=True)
+    lx.whitespace_split = True
+    lx.escape = ""
+    lx.commenters = ""
+    try:
+        return list(lx)
+    except ValueError:  # an unclosed quote
+        return text.split()
+
+
+def normalize_proxy(text: str) -> str:
+    """'127.0.0.1:8080' -> 'http://127.0.0.1:8080'. yt-dlp and urllib both need the scheme."""
+    p = (text or "").strip()
+    return ("http://" + p) if p and "://" not in p else p
+
+
+def normalize_rate(text: str) -> str:
+    """'5 MB/s', '5m', '800k' -> yt-dlp's '5M', '800K'. Anything else -> '' (no limit)."""
+    m = re.fullmatch(r"\s*(\d+(?:[.,]\d+)?)\s*([kmgKMG])?(?:i?[bB])?(?:/s)?\s*", text or "")
+    if not m or float(m.group(1).replace(",", ".")) <= 0:
+        return ""
+    return m.group(1).replace(",", ".") + (m.group(2) or "").upper()
+
+
+def normalize_country(text: str) -> str:
+    """Two-letter country code for --xff, upper case, or '' if it isn't one."""
+    t = (text or "").strip()
+    return t.upper() if re.fullmatch(r"[A-Za-z]{2}", t) else ""
