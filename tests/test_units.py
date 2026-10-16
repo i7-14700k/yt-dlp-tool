@@ -189,11 +189,13 @@ def test_outdated_engines_on_path():
     assert not too_old("ytdlp", "garbage", today) and not too_old("deno", "1.0.0")
 
 
-def test_check_engine_file(tmp_path, ffmpeg):
+def test_check_engine_file(tmp_path, ffmpeg, monkeypatch):
     import shutil
     import sys
     from pathlib import Path
+    from ingest.core import engines
     from ingest.core.engines import EXE, check_engine_file
+    monkeypatch.setattr(engines, "too_old", lambda key, version, today=None: "")  # whichever FFmpeg runs the tests
     # A real FFmpeg folder, picked as the folder, as ffmpeg or as ffprobe.
     d = tmp_path / "ff"
     d.mkdir()
@@ -245,3 +247,16 @@ def test_atomic_write_waits_out_a_locked_file(tmp_path, monkeypatch):
     S.atomic_write_text(target, '{"ok": true}')
     assert target.read_text() == '{"ok": true}' and len(calls) == 3
     assert not [p for p in tmp_path.iterdir() if p.suffix == ".tmp"]
+
+
+def test_check_engine_file_refuses_an_old_ffmpeg(tmp_path, ffmpeg, monkeypatch):
+    import shutil
+    from pathlib import Path
+    from ingest.core import engines
+    d = tmp_path / "old"
+    d.mkdir()
+    for name in ("ffmpeg", "ffprobe"):
+        shutil.copy(Path(ffmpeg).with_name(name + engines.EXE), d / (name + engines.EXE))
+    monkeypatch.setattr(engines, "parse_version", lambda key, out: "6.1.1")
+    use, why = engines.check_engine_file("ffmpeg", str(d))
+    assert not use and "too old" in why
