@@ -93,3 +93,9 @@ Windows build on CI) checked against the table above.
    Inspect format tables and the folder row became reachable by keyboard.
    Two grey lines in a row in the Output panel (the HDR note, then a grey
    field label) read as one paragraph; field labels are white now.
+7. At 980 px the Inspect format table ran its last column off the edge. It
+   now drops Bitrate, Range and Size, in that order, before anything clips.
+   Formats a site lists without a codec showed the container ("MP4") in the
+   Codec column and "after download" as the plan; they read "Not listed" and
+   "checked later". Engines found on PATH that are too old to rely on say so
+   in their row, with the Install button promoted, instead of passing as fine.
