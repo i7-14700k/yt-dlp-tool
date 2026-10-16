@@ -130,6 +130,11 @@ def ffmpeg_failure(lines: list[str]) -> Failure:
             re.search(r"(openencodesessionex failed|no nvenc capable devices|driver does not support)", low):
         return Failure("hw_encoder", "The GPU encoder failed", "Retrying on the CPU encoder.", _last(lines),
                        "cpu")
+    if "error applying bitstream filters" in low:
+        # A stream copy whose in-place header fix (h264_metadata and friends) can't parse the
+        # stream, e.g. Twitch's custom SEI. ffmpeg drops those packets and still exits 0.
+        return Failure("bsf", "The video stream couldn't be rewritten in place",
+                       "Retrying with the fix in the container instead.", _last(lines), "plain")
     if "invalid data found" in low or "moov atom not found" in low:
         return Failure("corrupt", "The download is damaged", "Retry the download.", _last(lines), "refresh")
     return Failure("convert", "Conversion failed", "Open the log for the ffmpeg output.", _last(lines))

@@ -30,7 +30,7 @@ from typing import Callable
 from . import conform, naming, paths, sponsorblock, verify, winapi
 from .errors import Failure, classify, ffmpeg_failure
 from .library import Item, Library
-from .probe import MediaInfo, ProbeError, measure_timing, probe
+from .probe import MediaInfo, ProbeError, grid_fit, measure_timing, probe
 from .procs import Proc
 from .settings import OutputOptions, from_dict, to_dict
 from .ytdlp import (Attempt, Network, Tools, download_args, gallery_args, load_info, parse_file,
@@ -780,6 +780,20 @@ class Runner(threading.Thread):
                              source_url=job.webpage_url or job.url, trim=trim, sponsor_segments=segments or None)
         except conform.PlanError as e:
             raise JobFailed(Failure("plan", str(e), "Try the Original profile, or open the log."))
+        if p.retime_rate and video is not None:
+            # Only the timestamps stand between this file and a straight copy. If every frame
+            # fits an exact grid, restamp instead of re-encoding: lossless, and seconds instead
+            # of hours for a long stream recording.
+            self._set(stage_text="Checking every frame's timestamp")
+            fit = grid_fit(tools.ffprobe, video.path, p.retime_rate, video.video.index)
+            if fit is not None:
+                self.log(f"-- every frame fits a {_fps_text(str(p.retime_rate))} grid (worst {fit.worst:.2f} frame), "
+                         "retiming instead of encoding")
+                p = conform.plan(inputs, opts, self.ctx.caps(), timing, title=job.title,
+                                 source_url=job.webpage_url or job.url, trim=trim,
+                                 sponsor_segments=segments or None, retime=fit)
+            else:
+                self.log(f"-- frames don't fit a {_fps_text(str(p.retime_rate))} grid, encoding")
         self._set(plan_summary=p.summary, plan_reasons=p.reasons, warnings=job.warnings + p.warnings,
                   out_props=p.out)
         self.log(f"-- plan: {p.summary} | reasons: {', '.join(p.reasons) or 'none'}")
@@ -793,7 +807,14 @@ class Runner(threading.Thread):
             self._set(stage_text="Moving file")
             _move(files[0], final)
         else:
-            self._run_ffmpeg(p, final)
+            p = self._run_ffmpeg(p, final)
+            if p.retimed and p.fallback is not None:
+                t = measure_timing(tools.ffprobe, final)
+                if t.vfr or not t.measured_rate or abs(float(t.measured_rate) - _fps_float(p.out.get("rate"))) > 0.01:
+                    self.log("-- the retimed copy isn't constant, encoding instead")
+                    p = self._run_ffmpeg(p.fallback, final)
+            if p.summary != job.plan_summary:
+                self._set(plan_summary=p.summary, plan_reasons=p.reasons, out_props=p.out)
         if opts.profile not in ("original",):
             self._verify(final, p)
         outputs = [str(final)]
@@ -828,7 +849,8 @@ class Runner(threading.Thread):
                 target = naming.unique_path(target)
         return target
 
-    def _run_ffmpeg(self, p: conform.Plan, final: Path) -> None:
+    def _run_ffmpeg(self, p: conform.Plan, final: Path) -> conform.Plan:
+        """Run a plan (or its fallbacks) to `final`. Returns the plan that produced the file."""
         tmp = final.with_name(final.stem + ".ingest-part" + final.suffix)
         plan = p
         while True:
@@ -848,12 +870,24 @@ class Runner(threading.Thread):
                 plan = plan.fallback
                 self._set(plan_summary=plan.summary)
                 continue
+            if f.retry_with == "plain" and plan.plain is not None:
+                self.log("-- the stream's headers couldn't be rewritten, tagging color in the container instead")
+                plan = plan.plain
+                self._set(plan_summary=plan.summary)
+                continue
+            if plan.retimed and plan.fallback is not None:
+                self.log("-- retimed copy failed, encoding instead")
+                plan = plan.fallback
+                self._set(plan_summary=plan.summary)
+                continue
             raise JobFailed(f)
         os.replace(tmp, final)
+        return plan
 
     def _ffmpeg(self, args: list[str], duration: float) -> tuple[bool, list[str]]:
         proc = self._spawn(args)
         lines: list[str] = []
+        dropped, bsf_line = False, ""
         out_time = 0.0
         speed = None
         for line in proc.lines():
@@ -882,12 +916,18 @@ class Runner(threading.Thread):
                     continue
             self.log(line)
             lines.append(line)
+            if "Error applying bitstream filters" in line:
+                # The filter dropped that packet and ffmpeg carries on to exit 0 regardless.
+                dropped = True
+                bsf_line = line
             if len(lines) > 400:
                 del lines[:100]
         code = proc.wait()
         self._clear_proc()
         self._check_stop()
-        return code == 0, lines
+        if dropped and bsf_line not in lines[-40:]:
+            lines.append(bsf_line)  # keep the cause where ffmpeg_failure looks
+        return code == 0 and not dropped, lines
 
     def _verify(self, final: Path, p: conform.Plan) -> None:
         s = self.ctx.settings()

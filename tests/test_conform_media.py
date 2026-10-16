@@ -292,3 +292,96 @@ def test_cover_art_dropped(ffmpeg, ffprobe, tmp_path):
     plan, mi, rep = conform_and_verify(ffmpeg, ffprobe, tmp_path, [str(withart)])
     assert_ok(rep)
     assert len([s for s in mi.streams if s.kind == "video"]) == 1
+
+
+# ---------------------------------------------------------------- retiming instead of encoding
+
+def _frame_hashes(ffmpeg, path):
+    r = subprocess.run([ffmpeg, "-hide_banner", "-v", "error", "-i", str(path), "-map", "0:v", "-f", "framemd5", "-"],
+                       stdout=subprocess.PIPE, check=True)
+    return [ln.rsplit(",", 1)[-1].strip() for ln in r.stdout.decode().splitlines() if ln and not ln.startswith("#")]
+
+
+def _plan_like_the_runner(ffprobe, src, opts=None):
+    """Plan; when only timestamps stand in the way of a copy, check the grid and plan again."""
+    from ingest.core.probe import grid_fit
+    opts = opts or OutputOptions()
+    infos = [probe(ffprobe, src)]
+    timing = measure_timing(ffprobe, src)
+    caps = conform.Caps(hw_h264=[], hw_hevc=[], zscale=True, libx265=True)
+    plan = conform.plan(infos, opts, caps, timing)
+    if plan.retime_rate:
+        fit = grid_fit(ffprobe, src, plan.retime_rate, infos[0].video.index)
+        if fit is not None:
+            plan = conform.plan(infos, opts, caps, timing, retime=fit)
+    return plan
+
+
+def _run_and_check(ffmpeg, ffprobe, tmp_path, plan):
+    out = tmp_path / "out.mp4"
+    run([ffmpeg, *plan.args, str(out)])
+    mi = probe(ffprobe, out)
+    t = measure_timing(ffprobe, out)
+    rep = verify.verify(mi, plan.profile, plan.out, t, plan.duration)
+    assert_ok(rep)
+    r = subprocess.run([ffprobe, "-v", "error", "-select_streams", "v:0", "-show_entries", "packet=pts,dts",
+                        "-of", "csv=p=0", str(out)], stdout=subprocess.PIPE, check=True)
+    rows = [tuple(int(x) for x in ln.split(",")) for ln in r.stdout.decode().split() if ln]
+    pts = sorted(p for p, _ in rows)
+    return out, mi, {b - a for a, b in zip(pts, pts[1:])}, rows
+
+
+@pytest.mark.parametrize("container", ["mkv", "flv"])
+def test_millisecond_container_is_retimed_not_encoded(ffmpeg, ffprobe, tmp_path, container):
+    # Matroska and FLV keep milliseconds, so 29.97 arrives as 33/34 ms steps. B-frames on purpose.
+    src = make(ffmpeg, tmp_path / f"src.{container}", *lavfi_video("testsrc2=s=640x360:r=30000/1001:d=6"),
+               *lavfi_audio(48000, 6), "-c:v", "libx264", "-preset", "ultrafast", "-bf", "3", "-g", "60",
+               "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest")
+    plan = _plan_like_the_runner(ffprobe, src)
+    assert plan.retimed and plan.video_action == "copy", plan.reasons
+    assert plan.summary.startswith("Retime H.264")
+    out, mi, steps, rows = _run_and_check(ffmpeg, ffprobe, tmp_path, plan)
+    assert mi.video.avg_rate == Fraction(30000, 1001)
+    assert len(steps) == 1  # one exact frame duration throughout
+    dts = [d for _, d in rows]
+    assert all(b > a for a, b in zip(dts, dts[1:])) and all(d <= p for p, d in rows)
+    assert _frame_hashes(ffmpeg, out) == _frame_hashes(ffmpeg, src)  # nothing was re-encoded
+
+
+def test_jittery_mp4_is_restamped(ffmpeg, ffprobe, tmp_path):
+    """Twitch-style: MP4 with a 90 kHz clock but millisecond-rounded stamps (RTMP origin)."""
+    mkv = make(ffmpeg, tmp_path / "rtmp.mkv", *lavfi_video("testsrc2=s=640x360:r=30000/1001:d=6"),
+               "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p")
+    src = make(ffmpeg, tmp_path / "clip.mp4", "-i", mkv, "-c", "copy", "-video_track_timescale", "90000")
+    t = measure_timing(ffprobe, src)
+    assert not t.vfr and t.spread > 0.02
+    plan = _plan_like_the_runner(ffprobe, src)
+    assert plan.retimed, plan.reasons
+    _out, mi, steps, _rows = _run_and_check(ffmpeg, ffprobe, tmp_path, plan)
+    assert len(steps) == 1 and mi.video.avg_rate == Fraction(30000, 1001)
+
+
+def test_gap_in_the_stream_is_encoded(ffmpeg, ffprobe, tmp_path):
+    """A dropped second can't be restamped away; the encoder fills it with held frames."""
+    src = make(ffmpeg, tmp_path / "gap.mkv", *lavfi_video("testsrc2=s=640x360:r=30000/1001:d=6"),
+               "-vf", "select='not(between(t,2,3))'", "-fps_mode", "passthrough",
+               "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p")
+    plan = _plan_like_the_runner(ffprobe, src)
+    assert not plan.retimed and plan.video_action == "encode"
+    _out, _mi, steps, _rows = _run_and_check(ffmpeg, ffprobe, tmp_path, plan)
+    assert len(steps) == 1
+
+
+def test_untagged_copy_has_a_plain_fallback(ffmpeg, ffprobe, tmp_path):
+    """If h264_metadata can't parse a stream (Twitch's SEI), the copy is retried with container tags only."""
+    src = make(ffmpeg, tmp_path / "untagged.mp4", *lavfi_video("testsrc2=s=640x360:r=30:d=2"), "-c:v", "libx264",
+               "-preset", "ultrafast", "-pix_fmt", "yuv420p")
+    plan, mi, rep = conform_and_verify(ffmpeg, ffprobe, tmp_path, [src])
+    assert plan.video_action == "copy" and any("h264_metadata" in a for a in plan.args)
+    assert plan.plain is not None and not any("h264_metadata" in a for a in plan.plain.args)
+    assert "-color_primaries" in plan.plain.args
+    assert_ok(rep)
+    out = tmp_path / "plain.mp4"
+    run([ffmpeg, *plan.plain.args, str(out)])
+    v = probe(ffprobe, out).video
+    assert (v.color_primaries, v.color_transfer, v.color_space) == ("bt709",) * 3

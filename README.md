@@ -19,7 +19,10 @@ has all of these. For each download Ingest:
 3. Copies every stream it can. It only re-encodes for a stated reason
    ("VP9 isn't supported by Premiere or After Effects", "variable frame
    rate"), and header-only problems such as missing color tags or a 640:639
-   pixel aspect are fixed in the bitstream without re-encoding.
+   pixel aspect are fixed in the bitstream without re-encoding. Constant-rate
+   video whose timestamps were rounded on the way (Twitch and other RTMP
+   streams, MKV, FLV) has every frame restamped onto an exact grid instead:
+   the same frames, bit for bit, in seconds rather than a full encode.
 4. When it encodes: constant frame rate snapped to the nearest standard rate,
    even dimensions, square pixels, BT.709 tags, HDR tone-mapped to SDR, a
    keyframe every second for fast scrubbing, AAC-LC or PCM at 48 kHz, index at

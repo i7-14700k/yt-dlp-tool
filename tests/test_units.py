@@ -112,6 +112,17 @@ def test_selection_from_info():
     assert sel.format_ids == "137,251" and sel.vcodec == "h264" and sel.acodec == "opus" and sel.size == 1100
 
 
+def test_ffmpeg_failures():
+    from ingest.core.errors import ffmpeg_failure
+    # A header rewrite that can't parse the stream is not a damaged download.
+    bsf = ffmpeg_failure(["[h264_metadata @ 0x1] Failed to read unit 3 (type 6): Invalid data found when processing "
+                          "input.", "[vost#0:0/copy] Error applying bitstream filters to a packet: Invalid data found "
+                          "when processing input"])
+    assert bsf.kind == "bsf" and bsf.retry_with == "plain"
+    assert ffmpeg_failure(["moov atom not found"]).retry_with == "refresh"
+    assert ffmpeg_failure(["[h264_nvenc] OpenEncodeSessionEx failed: out of memory"]).retry_with == "cpu"
+
+
 def test_error_classification():
     assert classify(["ERROR: [youtube] x: Sign in to confirm you’re not a bot"]).retry_with == "cookies"
     assert classify(["ERROR: unable to download video data: HTTP Error 403: Forbidden"]).kind == "forbidden"

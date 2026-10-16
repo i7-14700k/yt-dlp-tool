@@ -309,6 +309,61 @@ def timing_from_pts(pts: list[float]) -> Timing:
                   measured_rate=Fraction(1 / med).limit_denominator(1001) if med else None)
 
 
+@dataclass
+class GridFit:
+    """Every frame of a stream mapped onto an exact constant-rate grid."""
+    rate: Fraction
+    k0: int        # grid slot of the first packet in decode order (the earliest frame is slot 0)
+    frames: int
+    worst: float   # largest distance from its slot, in frames
+
+
+def grid_fit(ffprobe: str, path: str | Path, rate: Fraction, stream_index: int | None = None,
+             timeout: float = 900) -> GridFit | None:
+    """Can each frame move onto an exact `rate` grid without collisions, gaps or reordering?
+
+    True for constant-rate video whose container rounded the timestamps (RTMP and
+    FLV origins such as Twitch, Matroska's milliseconds): the frames were evenly
+    spaced all along and only their stamps jitter. Reads every packet of the
+    stream, no decoding.
+    """
+    sel = f"{stream_index}" if stream_index is not None else "v:0"
+    code, out = run_capture(
+        [ffprobe, "-v", "error", "-select_streams", sel, "-show_entries", "packet=pts_time,flags",
+         "-of", "csv=p=0", str(path)], timeout=timeout)
+    if code != 0 or not rate:
+        return None
+    pts: list[float] = []
+    first_key = False
+    for line in out.splitlines():
+        parts = line.strip().split(",")
+        if not parts or not parts[0]:
+            continue
+        flags = parts[1] if len(parts) > 1 else ""
+        if parts[0] == "N/A" or "D" in flags:
+            return None  # a frame with no stamp, or edit-list preroll: leave it to the encoder
+        try:
+            t = float(parts[0])
+        except ValueError:
+            return None
+        if not pts:
+            first_key = "K" in flags  # stream copy drops whatever precedes the first keyframe
+        pts.append(t)
+    if len(pts) < 12 or not first_key:
+        return None
+    step = 1 / float(rate)
+    p0 = min(pts)
+    slots, worst = [], 0.0
+    for t in pts:
+        x = (t - p0) / step
+        k = round(x)
+        worst = max(worst, abs(x - k))
+        slots.append(k)
+    if worst > 0.25 or sorted(slots) != list(range(len(slots))):
+        return None
+    return GridFit(rate=Fraction(rate), k0=slots[0], frames=len(pts), worst=worst)
+
+
 def moov_before_mdat(path: str | Path) -> bool | None:
     """True if the MP4/MOV index is at the front (fast start). None if not an ISO file."""
     try:

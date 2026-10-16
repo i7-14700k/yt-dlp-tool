@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from fractions import Fraction
 
-from .probe import STANDARD_RATES, MediaInfo, Stream, Timing, rate_str, snap_rate
+from .probe import STANDARD_RATES, GridFit, MediaInfo, Stream, Timing, rate_str, snap_rate
 from .settings import OutputOptions
 from .util import fps_label
 
@@ -115,6 +115,9 @@ class Plan:
     out: dict = field(default_factory=dict)
     duration: float = 0.0
     fallback: "Plan | None" = None
+    retime_rate: Fraction | None = None  # only timestamps stand in the way of a copy: worth a grid check
+    retimed: bool = False                # copied, with every frame stamped onto an exact grid
+    plain: "Plan | None" = None          # the same copy without rewriting the bitstream's headers
 
     @property
     def summary(self) -> str:
@@ -354,7 +357,7 @@ def plan(inputs: list[MediaInfo], opts: OutputOptions, caps: Caps | None = None,
          timing: Timing | None = None, title: str = "", source_url: str = "",
          trim: tuple[float, float] | None = None,
          sponsor_segments: list[tuple[float, float]] | None = None,
-         force_encoder: str | None = None) -> Plan:
+         force_encoder: str | None = None, retime: GridFit | None = None) -> Plan:
     caps = caps or Caps()
     if not inputs:
         raise PlanError("Nothing was downloaded.")
@@ -377,7 +380,7 @@ def plan(inputs: list[MediaInfo], opts: OutputOptions, caps: Caps | None = None,
         return _plan_audio(inputs, audio, profile, opts, title, source_url, trim, sponsor_segments)
 
     return _plan_video(inputs, video, audio, profile, opts, caps, timing, title, source_url, trim,
-                       sponsor_segments, force_encoder)
+                       sponsor_segments, force_encoder, retime)
 
 
 def _with(opts: OutputOptions, **kw) -> OutputOptions:
@@ -529,10 +532,12 @@ def _plan_audio(inputs, audio, profile: Profile, opts, title, url, trim, segment
 
 
 def _plan_video(inputs, video, audio, profile: Profile, opts: OutputOptions, caps: Caps, timing: Timing | None,
-                title, url, trim, segments, force_encoder) -> Plan:
+                title, url, trim, segments, force_encoder, retime: GridFit | None = None,
+                bsf_ok: bool = True) -> Plan:
     vi, v = video
     vin = inputs[vi]
     reasons: list[str] = []
+    ts_reasons: list[str] = []  # problems with the timestamps only, which retiming can fix without encoding
     warnings: list[str] = []
     out_w, out_h, resized = _target_dims(v, opts)
     rate = _target_rate(v, opts, timing)
@@ -561,12 +566,12 @@ def _plan_video(inputs, video, audio, profile: Profile, opts: OutputOptions, cap
                 if not any("H.264" in r for r in reasons):
                     reasons.append(f"H.264 {v.profile} profile")
             if vin.container in ("matroska", "webm", "flv"):
-                reasons.append(f"{vin.container.upper()} timestamps are rounded, rebuilt as constant rate")
+                ts_reasons.append(f"{vin.container.upper()} timestamps are rounded, rebuilt as constant rate")
     elif profile.id == "hevc":
         if v.codec != "hevc":
             reasons.append(f"{codec_name(v.codec)} to HEVC")
         elif vin.container in ("matroska", "webm", "flv"):
-            reasons.append("container timestamps are rounded")
+            ts_reasons.append("container timestamps are rounded")
     elif profile.id == "prores":
         if not (v.codec == "prores" and v.profile and PRORES_PROFILES[opts.prores][1].split()[-1] in v.profile):
             reasons.append(f"{codec_name(v.codec)} to {PRORES_PROFILES.get(opts.prores, PRORES_PROFILES['hq'])[1]}")
@@ -576,7 +581,7 @@ def _plan_video(inputs, video, audio, profile: Profile, opts: OutputOptions, cap
     if timing and timing.vfr:
         reasons.append("variable frame rate, conformed to constant")
     if src_rate and abs(float(src_rate) - float(rate)) > 0.01 and not (timing and timing.vfr):
-        reasons.append(f"{fps_label(float(src_rate))} to {fps_label(float(rate))} fps")
+        ts_reasons.append(f"{fps_label(float(src_rate))} to {fps_label(float(rate))} fps")
     if resized:
         if not v.near_square:
             reasons.append("non-square pixels")
@@ -593,7 +598,17 @@ def _plan_video(inputs, video, audio, profile: Profile, opts: OutputOptions, cap
     if segments:
         reasons.append("sponsor segments removed")
 
-    copy_video = not reasons
+    # Millisecond jitter on an otherwise constant stream is copied as it is, but restamped when
+    # every frame fits the grid: Premiere reads uneven sample durations as variable frame rate.
+    jitter = bool(timing and not timing.vfr and timing.spread > 0.02)
+    retime_ok = ((bool(ts_reasons) or jitter) and not reasons and profile.id in ("h264", "hevc")
+                 and v.codec == profile.id and not (timing and timing.vfr))
+    retimed = retime_ok and retime is not None and retime.rate == rate
+    if retimed:
+        reasons = [f"timestamps moved onto an exact {fps_label(float(rate))} grid, not re-encoded"]
+    else:
+        reasons += ts_reasons
+    copy_video = not reasons or retimed
     gop = _gop(rate, opts)
     args = _common_head(inputs)
     args += ["-map", f"{vi}:{v.index}"]
@@ -606,20 +621,40 @@ def _plan_video(inputs, video, audio, profile: Profile, opts: OutputOptions, cap
     fallback_family = None
     if copy_video:
         args += ["-c:v", "copy"]
-        # Fix header-only problems in the bitstream itself, without re-encoding.
+        bsfs = []
+        if retimed:
+            # Each frame keeps its slot on an exact grid: slot = round(offset / frame), counted from
+            # the first packet, shifted so the earliest frame is slot 0. B-frame order is preserved
+            # because the mapping is monotonic. Expressions run in the output time base.
+            num, den, k0 = rate.numerator, rate.denominator, retime.k0
+            slot = "(round(({t}-STARTPTS)/{d})+{k})*{d}"
+            bsfs.append(f"setts=time_base=1/{num}:prescale=1:pts={slot.format(t='PTS', d=den, k=k0)}"
+                        f":dts={slot.format(t='DTS', d=den, k=k0)}:duration={den}")
+        # Fix header-only problems in the bitstream itself, without re-encoding. Untagged color is
+        # also tagged in the container, which is all that's left if the stream can't be rewritten.
+        untagged = not v.color_primaries and not v.color_transfer and not v.color_space
         meta = []
-        if not v.color_primaries and not v.color_transfer and not v.color_space:
+        if untagged:
             meta.append("colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1")
         if not v.square_pixels:
             meta.append("sample_aspect_ratio=1/1")
-        if meta and v.codec in ("h264", "hevc"):
-            args += ["-bsf:v", f"{v.codec}_metadata=" + ":".join(meta)]
+        rewrites = bool(meta) and v.codec in ("h264", "hevc") and bsf_ok
+        if rewrites:
+            bsfs.append(f"{v.codec}_metadata=" + ":".join(meta))
+        if bsfs:
+            args += ["-bsf:v", ",".join(bsfs)]
+        if untagged:
+            args += ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709"]
         if not v.square_pixels:
             args += ["-aspect", f"{v.width}:{v.height}"]
         if v.codec == "hevc":
             args += ["-tag:v", "hvc1"]
-        step_v = f"Copy {codec_name(v.codec)} {min(out_w, out_h)}p {fps_label(float(src_rate or rate))}"
-        out_rate = src_rate or rate
+        if retimed:
+            step_v = f"Retime {codec_name(v.codec)} {min(out_w, out_h)}p {fps_label(float(rate))}"
+            out_rate = rate
+        else:
+            step_v = f"Copy {codec_name(v.codec)} {min(out_w, out_h)}p {fps_label(float(src_rate or rate))}"
+            out_rate = src_rate or rate
     else:
         filters = []
         if v.is_interlaced:
@@ -723,6 +758,16 @@ def _plan_video(inputs, video, audio, profile: Profile, opts: OutputOptions, cap
     if fallback_family and not force_encoder:
         p.fallback = _plan_video(inputs, video, audio, profile, opts, caps, timing, title, url, trim, segments,
                                  force_encoder=fallback_family)
+    if retimed:
+        p.retimed = True
+        # If the copy fails or the result isn't exactly constant, encode as usual.
+        p.fallback = _plan_video(inputs, video, audio, profile, opts, caps, timing, title, url, trim, segments,
+                                 force_encoder)
+    elif retime_ok:
+        p.retime_rate = rate
+    if copy_video and rewrites:
+        p.plain = _plan_video(inputs, video, audio, profile, opts, caps, timing, title, url, trim, segments,
+                              force_encoder, retime, bsf_ok=False)
     return p
 
 
