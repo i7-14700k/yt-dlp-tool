@@ -175,6 +175,10 @@ def run_headless(app, store, engines, library, outdir: str | None, selftest: boo
         report["checks"]["screenshots"] = sorted(p.name for p in out.glob("*.png"))
 
     if selftest:
+        from ..core import paths, winapi
+        if paths.is_frozen() and sys.platform == "win32":
+            report["checks"]["protocol_registered"] = winapi.register_protocol(sys.executable)
+            report["ok"] = report["ok"] and report["checks"]["protocol_registered"]
         st = {k: engines.state(k).__dict__ for k in ("ytdlp", "ffmpeg", "deno", "gallerydl")}
         report["checks"]["engines"] = {k: {"version": v["version"], "source": v["source"]} for k, v in st.items()}
     win._really_quit = True

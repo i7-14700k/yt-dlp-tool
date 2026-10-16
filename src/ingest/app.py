@@ -78,9 +78,9 @@ def main(argv: list[str] | None = None) -> int:
     app.setApplicationVersion(__version__)
     app.setOrganizationName(APP_NAME)
     app.setStyle("Fusion")
-    from .core.util import extract_urls
+    from .core.util import expand_protocol_links, extract_urls
 
-    urls = extract_urls(" ".join(args.urls))
+    urls = extract_urls(" ".join(expand_protocol_links(args.urls)))
     headless = bool(args.screenshot or args.selftest)
     if not headless and _send_to_running(urls):
         return 0
@@ -108,6 +108,8 @@ def main(argv: list[str] | None = None) -> int:
 
     win = MainWindow(store, engines, library)
     win.setWindowIcon(icon)
+    if paths.is_frozen() and store.settings.browser_links:
+        winapi.register_protocol(sys.executable)
 
     from PySide6.QtNetwork import QLocalServer
     server = QLocalServer(app)

@@ -164,3 +164,24 @@ def domain_of(url: str) -> str:
 
 def clamp(v: float, lo: float, hi: float) -> float:
     return lo if v < lo else hi if v > hi else v
+
+
+BOOKMARKLET = ("javascript:(()=>{location.href='ingest://add?url='+encodeURIComponent(location.href)})()")
+
+
+def expand_protocol_links(args: list[str]) -> list[str]:
+    """ingest://add?url=<encoded> (from the bookmarklet) back into the plain link."""
+    from urllib.parse import parse_qs, unquote, urlparse
+    out = []
+    for a in args:
+        if a.lower().startswith("ingest:"):
+            p = urlparse(a)
+            q = parse_qs(p.query).get("url")
+            if q:
+                out.append(q[0])
+                continue
+            rest = a.split(":", 1)[1].lstrip("/")
+            out.append(unquote(rest))
+        else:
+            out.append(a)
+    return out

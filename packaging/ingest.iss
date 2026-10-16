@@ -41,6 +41,13 @@ Source: "..\dist\Ingest\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdir
 Name: "{autoprograms}\Ingest"; Filename: "{app}\Ingest.exe"; AppUserModelID: "Ingest.Desktop.1"
 Name: "{autodesktop}\Ingest"; Filename: "{app}\Ingest.exe"; Tasks: desktopicon; AppUserModelID: "Ingest.Desktop.1"
 
+[Registry]
+; ingest:// links, for the "Send to Ingest" bookmarklet. Ingest also re-registers itself at launch.
+Root: HKCU; Subkey: "Software\Classes\ingest"; ValueType: string; ValueData: "URL:Ingest"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\ingest"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\ingest\DefaultIcon"; ValueType: string; ValueData: """{app}\Ingest.exe"",0"
+Root: HKCU; Subkey: "Software\Classes\ingest\shell\open\command"; ValueType: string; ValueData: """{app}\Ingest.exe"" ""%1"""
+
 [Run]
 Filename: "{app}\Ingest.exe"; Description: "Start Ingest"; Flags: nowait postinstall skipifsilent
 

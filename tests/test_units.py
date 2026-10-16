@@ -138,3 +138,10 @@ def test_settings_roundtrip_and_bad_values(tmp_path):
     assert Path(tmp_path / "s.broken.json").exists()
     d = to_dict(Settings())
     assert from_dict(Settings, d) == Settings()
+
+
+def test_protocol_links():
+    from ingest.core.util import expand_protocol_links
+    assert expand_protocol_links(["ingest://add?url=https%3A%2F%2Fyoutu.be%2Fabc%3Ft%3D5"]) == ["https://youtu.be/abc?t=5"]
+    assert expand_protocol_links(["ingest:https%3A%2F%2Fx.com%2Fa"]) == ["https://x.com/a"]
+    assert expand_protocol_links(["https://plain"]) == ["https://plain"]

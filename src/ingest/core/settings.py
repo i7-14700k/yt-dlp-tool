@@ -110,6 +110,7 @@ class Settings:
     last_update_check: float = 0.0
     # App
     clipboard_suggest: bool = True
+    browser_links: bool = True     # register ingest:// for the bookmarklet
     notifications: bool = True
     verify: bool = True
     extra_args: str = ""

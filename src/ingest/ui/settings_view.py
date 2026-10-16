@@ -207,6 +207,11 @@ class SettingsPage(QWidget):
         g.row("Verify every file", self._bind_toggle("verify"),
               "Measure finished files against Premiere and After Effects requirements. Adds a second or two.")
         g.row("Resume unfinished downloads on launch", self._bind_toggle("resume_on_launch"))
+        copy_bm = Button("Copy bookmarklet", "secondary")
+        copy_bm.clicked.connect(self._copy_bookmarklet)
+        g.row("Send pages from the browser", copy_bm,
+              "Make a new bookmark and paste this as its address. Clicking it on any page sends that page to "
+              "Ingest. The first time, the browser asks to open Ingest.")
 
         g = self._group("downloads", "Downloads")
         g.row("Parallel downloads", self._bind_stepper("max_concurrent", 1, 8),
@@ -340,6 +345,14 @@ class SettingsPage(QWidget):
             "Only download what you have the right to use.", 13, 400, T.FG2, wrap=True)
         about.setMaximumWidth(620)
         g.add(about, 0)
+
+    def _copy_bookmarklet(self) -> None:
+        from PySide6.QtGui import QGuiApplication
+        from ..core.util import BOOKMARKLET
+        QGuiApplication.clipboard().setText(BOOKMARKLET)
+        w = self.window()
+        if hasattr(w, "toast"):
+            w.toast.show_message("Bookmarklet copied. Paste it as a bookmark's address.")
 
     def _sync_cookie_rows(self) -> None:
         mode = self.s.cookies

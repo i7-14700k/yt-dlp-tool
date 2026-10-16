@@ -334,3 +334,38 @@ class TaskbarProgress:
             self._set_value(self._ptr, wintypes.HWND(hwnd), value, 1000)
         except Exception:
             pass
+
+
+# ---------------------------------------------------------------- ingest:// links
+
+PROTOCOL = "ingest"
+
+
+def register_protocol(exe: str) -> bool:
+    """Register ingest:// for the current user so a browser bookmarklet can hand links over.
+
+    Writes only under HKCU\\Software\\Classes; no administrator rights needed.
+    Returns True if the registration is (now) in place.
+    """
+    if not IS_WINDOWS:
+        return False
+    import winreg
+    command = f'"{exe}" "%1"'
+    base = rf"Software\Classes\{PROTOCOL}"
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, base + r"\shell\open\command") as k:
+            if winreg.QueryValueEx(k, "")[0] == command:
+                return True
+    except OSError:
+        pass
+    try:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, base) as k:
+            winreg.SetValueEx(k, "", 0, winreg.REG_SZ, "URL:Ingest")
+            winreg.SetValueEx(k, "URL Protocol", 0, winreg.REG_SZ, "")
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, base + r"\DefaultIcon") as k:
+            winreg.SetValueEx(k, "", 0, winreg.REG_SZ, f'"{exe}",0')
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, base + r"\shell\open\command") as k:
+            winreg.SetValueEx(k, "", 0, winreg.REG_SZ, command)
+        return True
+    except OSError:
+        return False
