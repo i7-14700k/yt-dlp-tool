@@ -36,7 +36,7 @@ def _test_encode(ffmpeg: str, encoder: str) -> bool:
 def _fingerprint(ffmpeg: str) -> str:
     try:
         st = os.stat(ffmpeg)
-        return f"{os.path.realpath(ffmpeg)}|{st.st_size}|{int(st.st_mtime)}"
+        return f"2|{os.path.realpath(ffmpeg)}|{st.st_size}|{int(st.st_mtime)}"
     except OSError:
         return ffmpeg
 
@@ -54,9 +54,11 @@ def detect(ffmpeg: str, cache_file: Path | None = None) -> Caps:
 
     code, enc_list = run_capture([ffmpeg, "-hide_banner", "-encoders"], timeout=20)
     _, filt_list = run_capture([ffmpeg, "-hide_banner", "-filters"], timeout=20)
+    _, setts_help = run_capture([ffmpeg, "-hide_banner", "-h", "bsf=setts"], timeout=20)
     listed = enc_list if code == 0 else ""
     caps = Caps(hw_h264=[], hw_hevc=[], zscale=" zscale " in filt_list,
-                libx265=" libx265 " in listed, libmp3lame=" libmp3lame " in listed)
+                libx265=" libx265 " in listed, libmp3lame=" libmp3lame " in listed,
+                setts="prescale" in setts_help)
 
     candidates = [(kind, fam, enc) for kind, fams in _HW.items() for fam, enc in fams.items()
                   if f" {enc} " in listed]

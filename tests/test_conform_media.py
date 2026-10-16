@@ -385,3 +385,13 @@ def test_untagged_copy_has_a_plain_fallback(ffmpeg, ffprobe, tmp_path):
     run([ffmpeg, *plan.plain.args, str(out)])
     v = probe(ffprobe, out).video
     assert (v.color_primaries, v.color_transfer, v.color_space) == ("bt709",) * 3
+
+
+def test_no_retime_without_setts_prescale(ffmpeg, ffprobe, tmp_path):
+    """FFmpeg 6 has setts but no prescale, so millisecond stamps can't land on an exact grid: encode."""
+    src = make(ffmpeg, tmp_path / "src.mkv", *lavfi_video("testsrc2=s=320x180:r=30000/1001:d=2"),
+               "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p")
+    infos = [probe(ffprobe, src)]
+    caps = conform.Caps(hw_h264=[], hw_hevc=[], zscale=True, libx265=True, setts=False)
+    plan = conform.plan(infos, OutputOptions(), caps, measure_timing(ffprobe, src))
+    assert plan.retime_rate is None and plan.video_action == "encode"

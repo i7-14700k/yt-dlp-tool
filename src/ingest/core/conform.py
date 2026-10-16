@@ -95,6 +95,7 @@ class Caps:
     zscale: bool = True
     libx265: bool = True
     libmp3lame: bool = True
+    setts: bool = True  # setts with prescale (FFmpeg 7+), which restamping needs
 
 
 @dataclass
@@ -602,7 +603,7 @@ def _plan_video(inputs, video, audio, profile: Profile, opts: OutputOptions, cap
     # every frame fits the grid: Premiere reads uneven sample durations as variable frame rate.
     jitter = bool(timing and not timing.vfr and timing.spread > 0.02)
     retime_ok = ((bool(ts_reasons) or jitter) and not reasons and profile.id in ("h264", "hevc")
-                 and v.codec == profile.id and not (timing and timing.vfr))
+                 and v.codec == profile.id and not (timing and timing.vfr) and caps.setts)
     retimed = retime_ok and retime is not None and retime.rate == rate
     if retimed:
         reasons = [f"timestamps moved onto an exact {fps_label(float(rate))} grid, not re-encoded"]
