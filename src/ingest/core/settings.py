@@ -36,7 +36,7 @@ class OutputOptions:
     prefer_compatible: bool = True  # choose H.264/AAC sources when nothing is lost
     quality: str = "high"          # max | high | balanced | compact
     encoder: str = "auto"          # auto | x264 | nvenc | qsv | amf
-    speed: str = "medium"          # x264 / x265 preset
+    speed: str = "fast"            # x264 / x265 preset (fast: good quality, 4K stays practical)
     gop: str = "1s"                # 1s | 2s | auto
     # Audio
     audio_rate: str = "48000"      # 48000 | source

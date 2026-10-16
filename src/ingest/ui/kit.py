@@ -340,8 +340,9 @@ class Segmented(QWidget):
 class _SelectPopup(QWidget):
     chosen = Signal(str)
 
-    ROW = 32
-    MAX_ROWS = 11
+    ROW = 30
+    ROW_DETAIL = 42
+    MAX_H = 380
 
     def __init__(self, owner: "Select") -> None:
         super().__init__(None, Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
@@ -351,22 +352,27 @@ class _SelectPopup(QWidget):
         self.options = owner.options
         self.index = max(0, owner._index(owner.value))
         self.hover = self.index
-        self.offset = 0
+        self.scroll = 0.0
         self._font = T.font(13, 400)
         self._detail_font = T.font(11.5, 400, mono=True)
+        self._tops: list[float] = []
+        y = 6.0
+        for o in self.options:
+            self._tops.append(y)
+            y += self.ROW_DETAIL if (len(o) > 2 and o[2]) else self.ROW
+        self._content_h = y + 6
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.StrongFocus)
 
-    def _row_h(self) -> int:
-        return self.ROW + (8 if any(len(o) > 2 and o[2] for o in self.options) else 0)
+    def _h(self, i: int) -> float:
+        o = self.options[i]
+        return self.ROW_DETAIL if (len(o) > 2 and o[2]) else self.ROW
 
     def popup_at(self, rect: QRect) -> None:
-        rows = min(len(self.options), self.MAX_ROWS)
-        rh = self._row_h()
         detail_w = max([T.text_width(self._detail_font, o[2]) for o in self.options if len(o) > 2 and o[2]] or [0])
         label_w = max([T.text_width(self._font, o[1]) for o in self.options] or [0])
-        w = max(rect.width(), int(label_w + 56), int(detail_w + 56))
-        h = rows * rh + 12
+        w = max(rect.width(), int(label_w + 64), int(detail_w + 64))
+        h = int(min(self._content_h, self.MAX_H))
         pos = rect.bottomLeft() + QPoint(0, 4)
         screen = QGuiApplication.screenAt(pos) or QGuiApplication.primaryScreen()
         avail = screen.availableGeometry()
@@ -374,14 +380,30 @@ class _SelectPopup(QWidget):
             pos.setY(rect.top() - h - 4)
         if pos.x() + w > avail.right():
             pos.setX(avail.right() - w)
-        self.offset = max(0, min(self.index - rows // 2, len(self.options) - rows))
         self.setGeometry(pos.x(), pos.y(), w, h)
+        self._ensure_visible(self.index)
         self.show()
         self.setFocus()
 
+    def _max_scroll(self) -> float:
+        return max(0.0, self._content_h - self.height())
+
+    def _ensure_visible(self, i: int) -> None:
+        if not 0 <= i < len(self.options):
+            return
+        top, bottom = self._tops[i] - 6, self._tops[i] + self._h(i) + 6
+        if top < self.scroll:
+            self.scroll = top
+        elif bottom > self.scroll + self.height():
+            self.scroll = bottom - self.height()
+        self.scroll = max(0.0, min(self.scroll, self._max_scroll()))
+
     def _row_at(self, y: float) -> int:
-        i = int((y - 6) // self._row_h()) + self.offset
-        return i if 0 <= i < len(self.options) else -1
+        y += self.scroll
+        for i, top in enumerate(self._tops):
+            if top <= y < top + self._h(i):
+                return i
+        return -1
 
     def mouseMoveEvent(self, e) -> None:  # noqa: N802
         i = self._row_at(e.position().y())
@@ -399,13 +421,10 @@ class _SelectPopup(QWidget):
             self.close()
 
     def wheelEvent(self, e) -> None:  # noqa: N802
-        rows = min(len(self.options), self.MAX_ROWS)
-        step = -1 if e.angleDelta().y() > 0 else 1
-        self.offset = max(0, min(self.offset + step, len(self.options) - rows))
+        self.scroll = max(0.0, min(self.scroll - e.angleDelta().y() / 2, self._max_scroll()))
         self.update()
 
     def keyPressEvent(self, e: QKeyEvent) -> None:  # noqa: N802
-        rows = min(len(self.options), self.MAX_ROWS)
         if e.key() in (Qt.Key_Down, Qt.Key_Tab):
             self.hover = min(len(self.options) - 1, max(0, self.hover) + 1)
         elif e.key() in (Qt.Key_Up, Qt.Key_Backtab):
@@ -420,44 +439,42 @@ class _SelectPopup(QWidget):
             return
         else:
             return super().keyPressEvent(e)
-        if self.hover < self.offset:
-            self.offset = self.hover
-        elif self.hover >= self.offset + rows:
-            self.offset = self.hover - rows + 1
+        self._ensure_visible(self.hover)
         self.update()
 
     def paintEvent(self, _e) -> None:  # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         rounded(p, QRectF(self.rect()), T.R_LG, T.S2)
-        rh = self._row_h()
-        rows = min(len(self.options), self.MAX_ROWS)
-        for vis in range(rows):
-            i = vis + self.offset
-            opt = self.options[i]
-            r = QRectF(6, 6 + vis * rh, self.width() - 12, rh)
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(self.rect()), T.R_LG, T.R_LG)
+        p.setClipPath(path)
+        p.translate(0, -self.scroll)
+        for i, opt in enumerate(self.options):
+            top = self._tops[i]
+            if top + self._h(i) < self.scroll or top > self.scroll + self.height():
+                continue
+            r = QRectF(6, top, self.width() - 12, self._h(i))
             if i == self.hover:
                 rounded(p, r, T.R_SM, T.S3)
-            selected = opt[0] == self.owner.value
-            if selected:
-                icons.draw(p, "check", QRectF(r.right() - 24, r.center().y() - 8, 16, 16), T.FG)
+            if opt[0] == self.owner.value:
+                icons.draw(p, "check", QRectF(r.right() - 26, r.center().y() - 8, 16, 16), T.FG)
+            text_w = r.width() - 46
             p.setFont(self._font)
             p.setPen(T.FG)
-            has_detail = len(opt) > 2 and opt[2]
-            if has_detail:
-                p.drawText(QRectF(r.left() + 10, r.top() + 5, r.width() - 40, 18), Qt.AlignLeft | Qt.AlignVCenter,
-                           opt[1])
+            if len(opt) > 2 and opt[2]:
+                p.drawText(QRectF(r.left() + 10, r.top() + 5, text_w, 18), Qt.AlignLeft | Qt.AlignVCenter, opt[1])
                 p.setFont(self._detail_font)
                 p.setPen(T.FG3)
-                p.drawText(QRectF(r.left() + 10, r.top() + 22, r.width() - 40, 14), Qt.AlignLeft | Qt.AlignVCenter,
-                           opt[2])
+                p.drawText(QRectF(r.left() + 10, r.top() + 22, text_w, 14), Qt.AlignLeft | Qt.AlignVCenter,
+                           QFontMetricsF(self._detail_font).elidedText(opt[2], Qt.ElideRight, text_w))
             else:
-                p.drawText(r.adjusted(10, 0, -34, 0), Qt.AlignLeft | Qt.AlignVCenter, opt[1])
-        if len(self.options) > rows:
-            # Scroll position as a short bar on the right edge, inside the radius.
+                p.drawText(QRectF(r.left() + 10, r.top(), text_w, r.height()), Qt.AlignLeft | Qt.AlignVCenter, opt[1])
+        p.translate(0, self.scroll)
+        if self._max_scroll() > 0:
             track_h = self.height() - 24
-            bar_h = max(18, track_h * rows / len(self.options))
-            y = 12 + (track_h - bar_h) * self.offset / max(1, len(self.options) - rows)
+            bar_h = max(18.0, track_h * self.height() / self._content_h)
+            y = 12 + (track_h - bar_h) * self.scroll / self._max_scroll()
             rounded(p, QRectF(self.width() - 5, y, 2.5, bar_h), 1.2, T.S4)
 
 

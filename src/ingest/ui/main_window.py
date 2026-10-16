@@ -200,8 +200,14 @@ class MainWindow(QMainWindow):
         self._really_quit = False
         self._seen_clipboard: set[str] = set()
         self.setWindowTitle(APP_NAME)
-        self.setMinimumSize(1100, 700)
-        self.resize(1320, 860)
+        # Fits a 1366x768 laptop at 125 % scaling (1093x614 logical).
+        self.setMinimumSize(980, 600)
+        screen = QGuiApplication.primaryScreen()
+        avail = screen.availableGeometry() if screen is not None else None
+        if avail is not None:
+            self.resize(min(1320, int(avail.width() * 0.92)), min(860, int(avail.height() * 0.92)))
+        else:
+            self.resize(1320, 860)
 
         self.thumbs = ThumbCache(self)
         self.thumbs.set_proxy(self.s.proxy)
@@ -310,6 +316,7 @@ class MainWindow(QMainWindow):
         QGuiApplication.clipboard().dataChanged.connect(self._clipboard_changed)
         for area in self.findChildren(QAbstractScrollArea):
             autohide_scrollbars(area)
+        self._tick()
 
     # ------------------------------------------------------------------ chrome
     def showEvent(self, e) -> None:  # noqa: N802

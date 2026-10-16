@@ -118,6 +118,54 @@ def run_headless(app, store, engines, library, outdir: str | None, selftest: boo
                 print("DEBUG", pg.vtable.geometry(), pg.atable.geometry(), pg.vtable.parentWidget().geometry(),
                       file=sys.stderr)
             win.grab().save(str(out / "07-inspect.png"))
+        # playlist picking
+        entries = [{"url": f"https://example.com/v{i}", "title": t, "duration": d,
+                    "thumbnail": thumbs[i % len(thumbs)] if thumbs else "", "playlist": {"index": i + 1}}
+                   for i, (t, d) in enumerate([("Episode 1: Light and shadow", 1220), ("Episode 2: Lenses", 1388),
+                                                ("Episode 3: Movement", 960), ("Episode 4: Colour", 1502),
+                                                ("Episode 5: Sound on set", 1104), ("Episode 6: The edit", 1730),
+                                                ("Bonus: Gear walkthrough", 640), ("Q&A livestream", 4210)])]
+        win.inspect_page.open("https://example.com/playlist?list=PL1", playlist=True,
+                              info={"_type": "playlist", "title": "Cinematography basics", "uploader": "Film School"},
+                              children=entries)
+        win.inspect_page.entries.checked[6] = False
+        win.inspect_page.entries.checked[7] = False
+        win.inspect_page._entries_changed()
+        win.show_page("inspect")
+        _pump(app, 0.6)
+        win.grab().save(str(out / "09-playlist.png"))
+        # library with items
+        from ..core.library import Item
+        for i, jb in enumerate(demo_jobs(store.settings.output, thumbs)):
+            library.add(Item(id=f"demo{i}", title=jb.title, site=jb.site, uploader=jb.uploader, duration=jb.duration,
+                             profile="h264" if i != 3 else "wav", path=str(out / "01-queue-empty.png"),
+                             size=int(2e8 + i * 3e7), width=1920 if i != 3 else 0, height=1080 if i != 3 else 0,
+                             fps=29.97 if i != 3 else 0, vcodec="h264" if i != 3 else "",
+                             acodec="aac" if i != 3 else "pcm_s24le", thumb_url=jb.thumbnail,
+                             created=time.time() - i * 50000,
+                             report={"premiere": True, "after_effects": True}))
+        win.show_page("library")
+        _pump(app, 0.6)
+        win.grab().save(str(out / "10-library.png"))
+        # popup, toast and dialog
+        win.show_page("queue")
+        _pump(app, 0.2)
+        win.toast.show_message("Added 12 links", "Undo", lambda: None)
+        _pump(app, 0.4)
+        win.grab().save(str(out / "11-toast.png"))
+        win.panel.fps.open_popup()
+        _pump(app, 0.3)
+        pop = win.panel.fps._popup
+        if pop is not None:
+            pop.grab().save(str(out / "12-select-popup.png"))
+            pop.close()
+        from .dialogs import Confirm
+        dlg = Confirm(win, "Quit while downloading?", "2 items are still working. Partial downloads are kept and "
+                      "resume next time.", ok="Quit", cancel="Keep working")
+        dlg.show()
+        _pump(app, 0.3)
+        dlg.grab().save(str(out / "13-dialog.png"))
+        dlg.close()
         win.inspect_page.open("https://example.com/watch?v=1")
         win.inspect_page.resolver.cancel()
         win.inspect_page.stack.setCurrentWidget(win.inspect_page.loading)

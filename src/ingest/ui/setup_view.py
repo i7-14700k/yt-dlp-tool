@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, Signal
+from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QPainter
-from PySide6.QtWidgets import QFileDialog, QWidget
+from PySide6.QtWidgets import QFileDialog, QScrollArea, QWidget
 
 from ..core import paths
 from ..core.engines import SPECS, EngineState
@@ -139,8 +139,14 @@ class SetupPage(QWidget):
         col_w = QWidget()
         col_w.setLayout(col)
         col_w.setFixedWidth(620)
-        outer = hbox(56, col_w, None, margins=(0, 40, 24, 24))
-        self.setLayout(outer)
+        inner = QWidget()
+        inner.setLayout(hbox(56, col_w, None, margins=(0, 40, 24, 24)))
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setWidget(inner)
+        self.setLayout(vbox(scroll))
 
     def _go(self) -> None:
         keys = [k for k, s in SPECS.items() if s.required]

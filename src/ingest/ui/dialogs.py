@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, Qt, QTimer
-from PySide6.QtGui import QFont, QPainter, QTextCursor
+from PySide6.QtGui import QColor, QFont, QPainter, QTextCursor
 from PySide6.QtWidgets import QDialog, QPlainTextEdit, QWidget
 
 from . import theme as T
@@ -42,7 +42,38 @@ class _Base(QDialog):
             g = pw.frameGeometry()
             self.adjustSize()
             self.move(g.center().x() - self.width() // 2, g.center().y() - self.height() // 2 - 40)
+            host = pw.centralWidget() if hasattr(pw, "centralWidget") and pw.centralWidget() else pw
+            self._backdrop = _Backdrop(host)
         super().showEvent(e)
+
+    def done(self, r) -> None:  # noqa: D401 - Qt API
+        b = getattr(self, "_backdrop", None)
+        if b is not None:
+            b.deleteLater()
+            self._backdrop = None
+        super().done(r)
+
+    def hideEvent(self, e) -> None:  # noqa: N802
+        b = getattr(self, "_backdrop", None)
+        if b is not None:
+            b.deleteLater()
+            self._backdrop = None
+        super().hideEvent(e)
+
+
+class _Backdrop(QWidget):
+    """Dims the window behind a dialog. Depth without shadows."""
+
+    def __init__(self, host: QWidget) -> None:
+        super().__init__(host)
+        self.setGeometry(host.rect())
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.show()
+        self.raise_()
+
+    def paintEvent(self, _e) -> None:  # noqa: N802
+        p = QPainter(self)
+        p.fillRect(self.rect(), QColor(0, 0, 0, 170))
 
 
 class Confirm(_Base):
@@ -55,6 +86,7 @@ class Confirm(_Base):
         self.cancel = Button(cancel, "ghost")
         self.ok.clicked.connect(self.accept)
         self.cancel.clicked.connect(self.reject)
+        self.cancel.setVisible(bool(cancel))
         self.setLayout(vbox(t, b, 8, hbox(None, self.cancel, self.ok), spacing=10, margins=(24, 22, 24, 20)))
         self.ok.setFocus()
 

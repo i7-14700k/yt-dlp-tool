@@ -140,6 +140,8 @@ class LibraryDelegate(QStyledItemDelegate):
                 spec.append({"aac": "AAC", "mp3": "MP3", "pcm_s24le": "PCM 24", "pcm_s16le": "PCM 16"}.get(
                     it.acodec, it.acodec))
             spec.append(human_bytes(it.size))
+            folder = Path(it.path).parent
+            spec.append(f"  {folder.name or str(folder)}")
             text, color = "  ".join(s for s in spec if s), T.FG2
         else:
             text, color = "File moved or deleted", T.FG3

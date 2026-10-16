@@ -421,19 +421,14 @@ class QueueDelegate(QStyledItemDelegate):
         second = QRectF(rc.left(), rc.top() + 26, rc.width(), 16)
         if st == Status.ACTIVE.value and job.stage not in (Stage.RESOLVE.value, Stage.CONVERT_WAIT.value) \
                 and not job.is_live:
-            pct = self._stage_pct(job)
-            p.setFont(self.f_pct)
-            p.setPen(T.FG)
-            p.drawText(top, Qt.AlignRight | Qt.AlignVCenter, f"{pct:.0f}%")
+            self._percent(p, top, self._stage_pct(job), T.FG)
             eta = human_eta(job.eta)
             if eta:
                 p.setFont(self.f_small)
                 p.setPen(T.FG3)
                 p.drawText(second, Qt.AlignRight | Qt.AlignVCenter, eta)
         elif st == Status.PAUSED.value:
-            p.setFont(self.f_pct)
-            p.setPen(T.FG3)
-            p.drawText(top, Qt.AlignRight | Qt.AlignVCenter, f"{self._stage_pct(job):.0f}%")
+            self._percent(p, top, self._stage_pct(job), T.FG3)
         elif st == Status.DONE.value:
             rep = job.report or {}
             if rep:
@@ -446,6 +441,19 @@ class QueueDelegate(QStyledItemDelegate):
             p.setFont(self.f_pct)
             p.setPen(T.FG)
             p.drawText(top, Qt.AlignRight | Qt.AlignVCenter, human_bytes(job.downloaded))
+
+    def _percent(self, p: QPainter, r: QRectF, pct: float, color: QColor) -> None:
+        num = f"{pct:.0f}"
+        fm = QFontMetricsF(self.f_pct)
+        fs = QFontMetricsF(self.f_small)
+        sign_w = fs.horizontalAdvance("%") + 1
+        base = r.top() + (r.height() + fm.ascent() - fm.descent()) / 2
+        p.setFont(self.f_small)
+        p.setPen(T.FG3 if color == T.FG else T.FG4)
+        p.drawText(QPointF(r.right() - sign_w + 1, base), "%")
+        p.setFont(self.f_pct)
+        p.setPen(color)
+        p.drawText(QPointF(r.right() - sign_w - fm.horizontalAdvance(num) - 1, base), num)
 
     def _compat(self, p: QPainter, r: QRectF, rep: dict) -> None:
         p.setFont(self.f_mono)
