@@ -36,11 +36,16 @@ has all of these. For each download Ingest:
 | Audio | WAV 24-bit, AAC or MP3 at 48 kHz | Music, voice, sound effects |
 | Original | Exactly what the site serves | Archiving |
 
+Images come through too: JPEG, PNG, GIF, TIFF and BMP are kept as served;
+WebP, AVIF, HEIC and JPEG XL are converted to PNG, or kept with a warning if
+FFmpeg can't read them.
+
 ## Getting it
 
 Download `Ingest-<version>-Setup-x64.exe` (per-user install, no admin) or the
 portable zip from the latest successful
-[build run](../../actions/workflows/build.yml) under Artifacts.
+[build run](../../actions/workflows/build.yml) under Artifacts. The build
+isn't code-signed, so SmartScreen warns on first run: More info > Run anyway.
 
 On first launch Ingest installs its engines from their official GitHub
 releases, checks each against the published SHA-256, and keeps them in
@@ -64,11 +69,19 @@ nightly channel in Settings > Engines when a site breaks.
 | Drop | Links, browser tabs or a `.txt` list onto the window |
 | Drag out | Finished files straight into Premiere's Project panel |
 | `Space` / `Delete` | Pause or resume / remove the selected rows |
+| Bookmarklet | Settings > General > Copy bookmarklet. Clicking it on any page sends that page to Ingest |
 
 Downloads and conversions run in separate slots, so the next download starts
 while the last one converts. Pausing a download keeps the partial files;
 pausing a conversion suspends FFmpeg in place. Unfinished work resumes on the
 next launch.
+
+When a download fails, Ingest retries on its own where that can help:
+with your browser cookies when a site asks you to sign in, with browser
+impersonation when a site blocks the request (HTTP 403, Cloudflare), with a
+fresh extraction when links expire, with yt-dlp nightly when a site changed
+and the fix isn't in a release yet, and with gallery-dl when there's no video
+to find. A failure that's left over says why and what to do next.
 
 Sites that need you signed in (members-only, age-restricted, private, YouTube
 bot checks): Settings > Accounts > cookies from a browser. Chrome and Edge
