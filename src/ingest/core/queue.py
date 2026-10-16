@@ -207,6 +207,7 @@ class QueueManager:
             j.uploader = c.get("uploader") or ""
             j.playlist = dict(c.get("playlist") or {})
             j.confirmed = parent.confirmed
+            j.force = parent.force
             new_jobs.append(j)
         with self._lock:
             try:
@@ -224,7 +225,8 @@ class QueueManager:
 
     # ---------------------------------------------------------------- public API (UI thread)
     def add_urls(self, urls: list[str], opts: OutputOptions, *, playlist: bool | None = None,
-                 confirmed: bool = False, front: bool = False, meta: list[dict] | None = None) -> list[Job]:
+                 confirmed: bool = False, force: bool = False, front: bool = False,
+                 meta: list[dict] | None = None) -> list[Job]:
         s = self.store.settings
         net = Network.from_settings(s, str(paths.cache_dir() / "yt-dlp"))
         jobs = []
@@ -232,6 +234,7 @@ class QueueManager:
             j = Job(url=url, opts=copy_options(opts), net=Network(**net.__dict__))
             j.want_playlist = _wants_playlist(url, s.playlist_links) if playlist is None else playlist
             j.confirmed = confirmed
+            j.force = force
             if meta and i < len(meta):
                 m = meta[i]
                 j.title = m.get("title") or ""

@@ -402,8 +402,8 @@ class MainWindow(QMainWindow):
         if len(urls) > 1:
             self.toast.show_message(f"Added {len(urls)} links")
 
-    def _add_from_inspect(self, urls: list, opts, playlist: bool, meta: list) -> None:
-        self.qm.add_urls(urls, opts, playlist=playlist, confirmed=True, meta=meta or None)
+    def _add_from_inspect(self, urls: list, opts, playlist: bool, meta: list, force: bool = True) -> None:
+        self.qm.add_urls(urls, opts, playlist=playlist, confirmed=True, force=force, meta=meta or None)
         self.show_page("queue")
         self.queue_page.url.clear()
         self.toast.show_message(f"Added {len(urls)} to the queue" if len(urls) > 1 else "Added to the queue")
@@ -554,7 +554,7 @@ class MainWindow(QMainWindow):
                         lambda: [self.qm.resume(j.id) for j in jobs])
         if done:
             m.addAction("Download again", lambda: self.qm.add_urls([j.webpage_url or j.url for j in done],
-                                                                   self.s.output, confirmed=True))
+                                                                   self.s.output, confirmed=True, force=True))
         m.addAction("Move to top", lambda: [self._move(j.id, 0) for j in reversed(jobs)])
         m.addSeparator()
         m.addAction("Remove from queue", lambda: self.qm.remove([j.id for j in jobs]))
@@ -620,7 +620,8 @@ class MainWindow(QMainWindow):
             m.addAction("Copy link", lambda: QGuiApplication.clipboard().setText(it.webpage_url or it.url))
             m.addAction("Open link in browser", lambda: QDesktopServices.openUrl(QUrl(it.webpage_url or it.url)))
             m.addAction("Download again", lambda: (self.qm.add_urls([it.webpage_url or it.url], self.s.output,
-                                                                    confirmed=True), self.show_page("queue")))
+                                                                    confirmed=True, force=True),
+                                                    self.show_page("queue")))
             m.addSeparator()
             m.addAction("Remove from library", lambda: (self.library.remove(item_id), self.library_page.reload()))
             if it.exists:

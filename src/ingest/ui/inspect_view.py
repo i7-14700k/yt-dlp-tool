@@ -418,7 +418,7 @@ def parse_ranges(text: str, n: int) -> set[int]:
 
 class InspectPage(QWidget):
     back = Signal()
-    add = Signal(list, object, bool, list)  # urls, opts, playlist-mode, meta
+    add = Signal(list, object, bool, list, bool)  # urls, options, as playlist, metadata, even if in library
 
     def __init__(self, thumbs: ThumbCache, get_tools, get_net, defaults: OutputOptions, parent=None,
                  get_nightly=None, allow_nightly=None) -> None:
@@ -478,7 +478,8 @@ class InspectPage(QWidget):
         retry.clicked.connect(lambda: self.open(self.url, self._playlist_mode))
         anyway = Button("Queue it anyway", "secondary")
         anyway.setToolTip("Add the link to the queue; it will retry with every fallback, including gallery-dl.")
-        anyway.clicked.connect(lambda: self.add.emit([self.url], copy_options(self.opts), self._playlist_mode, []))
+        anyway.clicked.connect(lambda: self.add.emit([self.url], copy_options(self.opts), self._playlist_mode, [],
+                                                     True))
         self.err_actions = hbox(retry, anyway, None)
         w.setLayout(vbox(24, self.err_title, self.err_hint, self.err_raw, 8, self.err_actions, None, spacing=8,
                          margins=(12, 0, 24, 0)))
@@ -637,7 +638,8 @@ class InspectPage(QWidget):
         chosen = [e for e, c in zip(self.entries.entries, self.entries.checked) if c]
         if not chosen:
             return
-        self.add.emit([e["url"] for e in chosen], copy_options(self.opts), False, chosen)
+        # Picked from a list: entries already in the library are still skipped, as for any playlist.
+        self.add.emit([e["url"] for e in chosen], copy_options(self.opts), False, chosen, False)
 
     # ------------------------------------------------------------------ single video
     def _show_video(self, info: dict) -> None:
@@ -903,7 +905,7 @@ class InspectPage(QWidget):
         info = self.info or {}
         meta = [{"title": info.get("title") or "", "duration": info.get("duration") or 0,
                  "thumbnail": info.get("thumbnail") or "", "uploader": info.get("uploader") or ""}]
-        self.add.emit([info.get("webpage_url") or self.url], copy_options(self.opts), False, meta)
+        self.add.emit([info.get("webpage_url") or self.url], copy_options(self.opts), False, meta, True)
 
     def sizeHint(self) -> QSize:  # noqa: N802
         return QSize(1100, 700)

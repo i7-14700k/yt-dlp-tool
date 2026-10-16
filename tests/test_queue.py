@@ -209,3 +209,18 @@ def test_resume_pressed_while_the_pause_settles(qm):
     qm.pause(job.id)
     wait(qm, lambda: job.status == "done", timeout=90)
     assert pressed == [job.id]
+
+
+def test_library_skip_holds_for_picked_entries_but_not_forced_ones(qm):
+    qm.store.settings.skip_existing = True
+    (first,) = qm.add_urls(["fake://video/again"], qm.store.settings.output)
+    wait(qm, lambda: first.status == "done")
+    assert not first.skipped
+    # Picked from a reviewed playlist: already downloaded, so skipped.
+    (picked,) = qm.add_urls(["fake://video/again"], qm.store.settings.output, confirmed=True)
+    wait(qm, lambda: picked.status == "done")
+    assert picked.skipped and picked.stage_text == "Already in your library"
+    # "Download again" forces it.
+    (forced,) = qm.add_urls(["fake://video/again"], qm.store.settings.output, confirmed=True, force=True)
+    wait(qm, lambda: forced.status == "done")
+    assert not forced.skipped

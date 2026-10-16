@@ -86,7 +86,8 @@ class Job:
     is_live: bool = False
     playlist: dict = field(default_factory=dict)
     want_playlist: bool = False
-    confirmed: bool = False
+    confirmed: bool = False  # a big playlist was already reviewed: expand it without asking again
+    force: bool = False      # download even if the library already has it
     selection: dict = field(default_factory=dict)
     # progress (0..1)
     dl_progress: float = 0.0
@@ -557,7 +558,7 @@ class Runner(threading.Thread):
             total=sel.size or None,
         )
         s = self.ctx.settings()
-        if getattr(s, "skip_existing", True) and self.ctx.library is not None and not job.confirmed:
+        if getattr(s, "skip_existing", True) and self.ctx.library is not None and not job.force:
             existing = self.ctx.library.find(job.extractor, job.video_id, job.opts.profile)
             if existing is not None:
                 job.skipped = True
