@@ -74,7 +74,7 @@ def verify(mi: MediaInfo, profile: str, expected: dict, timing: Timing | None,
             elif profile == "prores":
                 add(Check("4:2:2 10-bit", v.pix_fmt.startswith("yuv422p10"), v.pix_fmt))
             add(Check("Even frame size", v.width % 2 == 0 and v.height % 2 == 0, f"{v.width}×{v.height}"))
-            add(Check("Square pixels", v.square_pixels, v.sar or "1:1"))
+            add(Check("Square pixels", v.near_square, v.sar or "1:1"))
             if timing is not None and timing.samples >= 10:
                 add(Check("Constant frame rate", not timing.vfr,
                           "constant" if not timing.vfr else f"varies {timing.spread * 100:.1f}%"))

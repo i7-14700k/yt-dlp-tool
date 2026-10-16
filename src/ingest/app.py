@@ -43,7 +43,8 @@ def _install_excepthook(log_dir: Path) -> None:
                 fh.write(text + "\n")
         except OSError:
             pass
-        sys.__excepthook__(exc_type, exc, tb)
+        if sys.stderr is not None:  # None in a windowed (no console) build
+            sys.__excepthook__(exc_type, exc, tb)
     sys.excepthook = hook
 
 
@@ -53,12 +54,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("urls", nargs="*", help="links to queue")
     ap.add_argument("--screenshot", metavar="DIR", help="render every page to PNG files and exit")
     ap.add_argument("--selftest", action="store_true", help="check engines and rendering, then exit")
+    ap.add_argument("--e2e", metavar="URL", help="install engines if needed, download URL headless, verify, exit")
+    ap.add_argument("--profile", default="", help="output profile for --e2e (h264, prores, dnxhr, hevc, wav)")
+    ap.add_argument("--report", metavar="FILE", help="write the --selftest/--screenshot/--e2e result as JSON")
     ap.add_argument("--version", action="version", version=f"Ingest {__version__}")
     args, _unknown = ap.parse_known_args(argv)
 
     from .core import paths, winapi
     winapi.set_app_user_model_id(APP_USER_MODEL_ID)
     _install_excepthook(paths.logs_dir())
+    if args.e2e:
+        from .e2e import run_e2e
+        return run_e2e(args.e2e, args.profile, args.report)
 
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QGuiApplication
@@ -97,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.screenshot or args.selftest:
         from .ui.screens import run_headless
-        return run_headless(app, store, engines, library, args.screenshot, args.selftest)
+        return run_headless(app, store, engines, library, args.screenshot, args.selftest, args.report)
 
     win = MainWindow(store, engines, library)
     win.setWindowIcon(icon)

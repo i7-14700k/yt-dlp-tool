@@ -67,7 +67,8 @@ def demo_jobs(opts, thumbs: list[str]) -> list[Job]:
     ]
 
 
-def run_headless(app, store, engines, library, outdir: str | None, selftest: bool) -> int:
+def run_headless(app, store, engines, library, outdir: str | None, selftest: bool,
+                 report_path: str | None = None) -> int:
     from .main_window import MainWindow
     report: dict = {"ok": True, "checks": {}}
     win = MainWindow(store, engines, library)
@@ -130,6 +131,10 @@ def run_headless(app, store, engines, library, outdir: str | None, selftest: boo
         report["checks"]["engines"] = {k: {"version": v["version"], "source": v["source"]} for k, v in st.items()}
     win._really_quit = True
     win.qm.shutdown(1)
-    print(json.dumps(report, indent=2, default=str))
-    sys.stdout.flush()
+    text = json.dumps(report, indent=2, default=str)
+    if report_path:
+        Path(report_path).write_text(text, encoding="utf-8")
+    if sys.stdout is not None:  # a windowed build has no console
+        print(text)
+        sys.stdout.flush()
     return 0 if report["ok"] else 1

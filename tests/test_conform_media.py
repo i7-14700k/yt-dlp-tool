@@ -243,6 +243,16 @@ def test_vertical_video_cap_uses_short_side(ffmpeg, ffprobe, tmp_path):
     assert (mi.video.width, mi.video.height) == (720, 1280)
 
 
+def test_near_square_sar_fixed_without_reencode(ffmpeg, ffprobe, tmp_path):
+    src = make(ffmpeg, tmp_path / "s.mp4", *lavfi_video("testsrc2=s=852x480:r=30:d=2"), *lavfi_audio(48000, 2),
+               "-vf", "setsar=640/639", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+               "-c:a", "aac")
+    plan, mi, rep = conform_and_verify(ffmpeg, ffprobe, tmp_path, [src])
+    assert plan.video_action == "copy", plan.reasons
+    assert_ok(rep)
+    assert mi.video.sar in ("1:1", "")
+
+
 def test_cover_art_dropped(ffmpeg, ffprobe, tmp_path):
     v = make(ffmpeg, tmp_path / "v.mp4", *lavfi_video("testsrc2=s=640x360:r=30:d=2"), *lavfi_audio(48000, 2),
              "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac")

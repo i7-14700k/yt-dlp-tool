@@ -111,6 +111,19 @@ class Stream:
         return self.sar in ("", "0:1", "1:1", "N/A")
 
     @property
+    def sar_value(self) -> float:
+        try:
+            num, den = (int(x) for x in self.sar.split(":"))
+            return num / den if num > 0 and den > 0 else 1.0
+        except (ValueError, ZeroDivisionError):
+            return 1.0
+
+    @property
+    def near_square(self) -> bool:
+        """Square for practical purposes: encoders often write 640:639 and similar for 852x480."""
+        return self.square_pixels or abs(self.sar_value - 1.0) < 0.01
+
+    @property
     def chroma(self) -> str:
         p = self.pix_fmt
         if "444" in p or p.startswith(("gbr", "rgb", "bgr")):

@@ -1,0 +1,111 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Qt runtime libraries
+        run: sudo apt-get update -q && sudo apt-get install -y -q libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3
+      - run: pip install -r requirements-dev.txt
+      - name: FFmpeg for tests (the same builds Ingest installs)
+        run: |
+          curl -sSL -o ff.tar.xz https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz
+          mkdir ff && tar -xJf ff.tar.xz -C ff --strip-components=1
+          echo "INGEST_TEST_FFMPEG=$PWD/ff/bin/ffmpeg" >> "$GITHUB_ENV"
+          echo "INGEST_TEST_FFPROBE=$PWD/ff/bin/ffprobe" >> "$GITHUB_ENV"
+      - name: Tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - name: Version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path src/ingest/__init__.py -Pattern '__version__ = "(.+)"').Matches[0].Groups[1].Value
+          "version=$v" >> $env:GITHUB_OUTPUT
+      - name: FFmpeg for tests
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip -OutFile ff.zip
+          Expand-Archive ff.zip -DestinationPath ff
+          $bin = (Get-ChildItem ff -Recurse -Filter ffmpeg.exe | Select-Object -First 1).DirectoryName
+          "INGEST_TEST_FFMPEG=$bin\ffmpeg.exe" >> $env:GITHUB_ENV
+          "INGEST_TEST_FFPROBE=$bin\ffprobe.exe" >> $env:GITHUB_ENV
+      - name: Tests
+        run: python -m pytest -q
+      - name: Build Ingest.exe
+        run: pyinstaller --noconfirm packaging/ingest.spec
+      - name: Self-test the frozen build (Windows platform plugin, fonts, every page)
+        shell: pwsh
+        run: |
+          $env:INGEST_HOME = "$env:RUNNER_TEMP\ingest-home"
+          $p = Start-Process -FilePath dist\Ingest\Ingest.exe -Wait -PassThru -ArgumentList @(
+            "--selftest", "--screenshot", "$env:RUNNER_TEMP\screens", "--report", "$env:RUNNER_TEMP\selftest.json")
+          Get-Content "$env:RUNNER_TEMP\selftest.json"
+          if ($p.ExitCode -ne 0) { throw "selftest exited with $($p.ExitCode)" }
+      - name: End-to-end download with the frozen build
+        shell: pwsh
+        run: |
+          $env:INGEST_HOME = "$env:RUNNER_TEMP\ingest-home"
+          $ok = $false
+          foreach ($url in @("https://streamable.com/moo", "https://x.com/SpaceX/status/1732824684683784516")) {
+            $p = Start-Process -FilePath dist\Ingest\Ingest.exe -Wait -PassThru -ArgumentList @(
+              "--e2e", $url, "--report", "$env:RUNNER_TEMP\e2e.json")
+            $r = Get-Content "$env:RUNNER_TEMP\e2e.json" -Raw | ConvertFrom-Json
+            $r.steps | ForEach-Object { Write-Output $_ }
+            foreach ($j in $r.jobs) { Write-Output "$($j.status): $($j.title) -> $($j.outputs) [$($j.plan)]" }
+            if ($p.ExitCode -eq 0) { $ok = $true; break }
+            $r.jobs | ForEach-Object { Write-Output $_.log }
+          }
+          if (-not $ok) { throw "no end-to-end download succeeded" }
+      - name: Installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          & $iscc /Qp "/DAppVersion=${{ steps.ver.outputs.version }}" packaging\ingest.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+      - name: Portable zip
+        shell: pwsh
+        run: Compress-Archive -Path dist\Ingest -DestinationPath "dist\Ingest-${{ steps.ver.outputs.version }}-portable-x64.zip"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: Ingest-${{ steps.ver.outputs.version }}-windows-x64
+          path: |
+            dist/Ingest-*-Setup-x64.exe
+            dist/Ingest-*-portable-x64.zip
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: screens-and-reports
+          path: |
+            ${{ runner.temp }}/screens
+            ${{ runner.temp }}/selftest.json
+            ${{ runner.temp }}/e2e.json

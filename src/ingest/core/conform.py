@@ -148,7 +148,7 @@ def _pick_streams(inputs: list[MediaInfo]) -> tuple[tuple[int, Stream] | None, t
 
 def _display_dims(v: Stream) -> tuple[int, int]:
     w, h = v.width, v.height
-    if not v.square_pixels:
+    if not v.near_square:
         try:
             num, den = (int(x) for x in v.sar.split(":"))
             if num > 0 and den > 0:
@@ -174,7 +174,7 @@ def _target_dims(v: Stream, opts: OutputOptions) -> tuple[int, int, bool]:
         dw, dh = dw * scale, dh * scale
     ow, oh = _even(dw), _even(dh)
     stored = (v.height, v.width) if v.rotation in (90, 270) else (v.width, v.height)
-    return ow, oh, (ow, oh) != stored or not v.square_pixels
+    return ow, oh, (ow, oh) != stored or not v.near_square
 
 
 def _target_rate(v: Stream, opts: OutputOptions, timing: Timing | None) -> Fraction:
@@ -548,7 +548,7 @@ def _plan_video(inputs, video, audio, profile: Profile, opts: OutputOptions, cap
     if src_rate and abs(float(src_rate) - float(rate)) > 0.01 and not (timing and timing.vfr):
         reasons.append(f"{fps_label(float(src_rate))} to {fps_label(float(rate))} fps")
     if resized:
-        if not v.square_pixels:
+        if not v.near_square:
             reasons.append("non-square pixels")
         elif v.width % 2 or v.height % 2:
             reasons.append("odd frame size")
@@ -576,10 +576,16 @@ def _plan_video(inputs, video, audio, profile: Profile, opts: OutputOptions, cap
     fallback_family = None
     if copy_video:
         args += ["-c:v", "copy"]
-        if not v.color_primaries and not v.color_transfer and not v.color_space and v.codec == "h264":
-            args += ["-bsf:v", "h264_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1"]
-        elif not v.color_primaries and not v.color_transfer and not v.color_space and v.codec == "hevc":
-            args += ["-bsf:v", "hevc_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1"]
+        # Fix header-only problems in the bitstream itself, without re-encoding.
+        meta = []
+        if not v.color_primaries and not v.color_transfer and not v.color_space:
+            meta.append("colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1")
+        if not v.square_pixels:
+            meta.append("sample_aspect_ratio=1/1")
+        if meta and v.codec in ("h264", "hevc"):
+            args += ["-bsf:v", f"{v.codec}_metadata=" + ":".join(meta)]
+        if not v.square_pixels:
+            args += ["-aspect", f"{v.width}:{v.height}"]
         if v.codec == "hevc":
             args += ["-tag:v", "hvc1"]
         step_v = f"Copy {codec_name(v.codec)} {min(out_w, out_h)}p {fps_label(float(src_rate or rate))}"

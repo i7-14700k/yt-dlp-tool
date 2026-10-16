@@ -7,3 +7,4 @@ dist/
 .venv/
 engines/
 /packaging/output/
+packaging/version_info.txt
