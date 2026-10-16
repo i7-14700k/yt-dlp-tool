@@ -337,9 +337,9 @@ class OutputPanel(QScrollArea):
         dest = _Section("Save to")
         self.folder = FolderRow()
         self.folder.clicked.connect(self.choose_folder)
-        self.folder_open = IconButton("external", "Open folder")
+        self.folder_open = IconButton("external", "Open this folder", size=48)
         self.folder_open.clicked.connect(self._open_folder)
-        dest.add(self.folder)
+        dest.add(hbox(self.folder, self.folder_open, spacing=6))
         self.subfolder = Select(SUBFOLDERS, opts.subfolder, min_width=150)
         self.subfolder.changed.connect(lambda v: self._set("subfolder", v))
         dest.add(_row("Subfolder", self.subfolder))
@@ -431,7 +431,10 @@ class OutputPanel(QScrollArea):
 
     def _open_folder(self) -> None:
         d = self.opts.resolved_output_dir()
-        d.mkdir(parents=True, exist_ok=True)
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            d = next((p for p in d.parents if p.exists()), d)  # open what does exist
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(d)))
 
     def set_options(self, opts: OutputOptions) -> None:
