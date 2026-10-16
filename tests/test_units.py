@@ -228,3 +228,20 @@ def test_free_space_is_measured_off_the_gui_thread(tmp_path, monkeypatch):
     while fs.get(tmp_path) is None and time.monotonic() < deadline:
         time.sleep(0.02)
     assert fs.get(tmp_path) == 123
+
+
+def test_atomic_write_waits_out_a_locked_file(tmp_path, monkeypatch):
+    import os
+    from ingest.core import settings as S
+    real, calls = os.replace, []
+
+    def flaky(src, dst):
+        calls.append(1)
+        if len(calls) < 3:
+            raise PermissionError(13, "The process cannot access the file")  # a scanner has it open
+        return real(src, dst)
+    monkeypatch.setattr(S.os, "replace", flaky)
+    target = tmp_path / "settings.json"
+    S.atomic_write_text(target, '{"ok": true}')
+    assert target.read_text() == '{"ok": true}' and len(calls) == 3
+    assert not [p for p in tmp_path.iterdir() if p.suffix == ".tmp"]

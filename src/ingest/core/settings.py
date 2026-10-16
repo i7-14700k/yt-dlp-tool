@@ -13,6 +13,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, get_args, get_origin, get_type_hints
@@ -170,7 +171,16 @@ def atomic_write_text(path: Path, text: str) -> None:
             fh.write(text)
             fh.flush()
             os.fsync(fh.fileno())
-        os.replace(tmp, path)
+        for attempt in range(6):
+            try:
+                os.replace(tmp, path)
+                break
+            except PermissionError:
+                # Windows refuses to replace a file that a virus scanner or the indexer has
+                # open for a moment. Wait it out rather than lose the write.
+                if attempt == 5:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
     except BaseException:
         try:
             os.unlink(tmp)
@@ -207,9 +217,13 @@ class SettingsStore:
         s.output.audio_lang = ""
         return s
 
-    def save(self) -> None:
+    def save(self) -> bool:
         with self._lock:
-            atomic_write_text(self.path, json.dumps(to_dict(self.settings), indent=2, ensure_ascii=False))
+            try:
+                atomic_write_text(self.path, json.dumps(to_dict(self.settings), indent=2, ensure_ascii=False))
+                return True
+            except (OSError, TypeError, ValueError):
+                return False  # the next change saves again; never take the window down over it
 
     def remember_dir(self, d: str) -> None:
         dirs = [x for x in self.settings.recent_dirs if os.path.normcase(x) != os.path.normcase(d)]
