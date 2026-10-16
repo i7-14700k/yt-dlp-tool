@@ -449,6 +449,8 @@ class QueueManager:
             data = json.loads(self.state_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return
+        if not isinstance(data, dict):  # valid JSON but not a queue; starting empty beats a crash at launch
+            return
         resume = self.store.settings.resume_on_launch
         jobs = []
         for d in data.get("jobs", []):

@@ -525,3 +525,38 @@ def test_queue_ctrl_a(qapp, window):
     window.view.setFocus()
     QTest.keyClick(window.view, Qt.Key_A, Qt.ControlModifier)
     assert len(window.view.selectionModel().selectedRows()) == 2
+
+
+def test_select_popup_stays_on_screen(qapp):
+    from PySide6.QtCore import QRect
+    from PySide6.QtGui import QGuiApplication
+
+    from ingest.ui.kit import Select, _SelectPopup
+    avail = QGuiApplication.primaryScreen().availableGeometry()
+    s = Select([(str(i), f"Option {i}") for i in range(40)], "0")
+    for r in (QRect(avail.right() - 50, avail.bottom() - 30, 200, 32),  # bottom-right corner
+              QRect(avail.left() + 10, avail.top() + 20, 200, 32),       # top: opens below
+              QRect(avail.left() - 100, avail.center().y(), 200, 32)):   # hanging off the left
+        p = _SelectPopup(s)
+        p.popup_at(r)
+        assert avail.contains(p.geometry()), (r, p.geometry())
+        p.close()
+
+
+def test_confirm_enter_presses_focused_button(qapp, window):
+    from PySide6.QtCore import Qt, QTimer
+    from PySide6.QtTest import QTest
+
+    from ingest.ui.dialogs import Confirm
+    results = []
+    for focus_cancel in (False, True):
+        d = Confirm(window, "Title", "Body", ok="Yes", cancel="No")
+
+        def press(d=d, focus_cancel=focus_cancel):
+            if focus_cancel:
+                d.cancel.setFocus()
+            QTest.keyClick(d, Qt.Key_Return)
+            QTimer.singleShot(200, lambda: d.isVisible() and d.done(-1))  # never hang the suite
+        QTimer.singleShot(50, press)
+        results.append(d.exec())
+    assert results == [1, 0]

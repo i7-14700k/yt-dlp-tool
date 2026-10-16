@@ -417,14 +417,15 @@ class _SelectPopup(QWidget):
         detail_w = max([T.text_width(self._detail_font, o[2]) for o in self.options if len(o) > 2 and o[2]] or [0])
         label_w = max([T.text_width(self._font, o[1]) for o in self.options] or [0])
         w = max(rect.width(), int(label_w + 64), int(detail_w + 64))
-        h = int(min(self._content_h, self.MAX_H))
-        pos = rect.bottomLeft() + QPoint(0, 4)
-        screen = QGuiApplication.screenAt(pos) or QGuiApplication.primaryScreen()
+        # The control's own screen: the point under it can be off every screen at a monitor's
+        # bottom edge, which would put the list on the primary monitor instead.
+        screen = QGuiApplication.screenAt(rect.center()) or QGuiApplication.primaryScreen()
         avail = screen.availableGeometry()
+        h = int(min(self._content_h, self.MAX_H, avail.height() - 8))
+        pos = rect.bottomLeft() + QPoint(0, 4)
         if pos.y() + h > avail.bottom():
-            pos.setY(rect.top() - h - 4)
-        if pos.x() + w > avail.right():
-            pos.setX(avail.right() - w)
+            pos.setY(max(avail.top(), rect.top() - h - 4))
+        pos.setX(max(avail.left(), min(pos.x(), avail.right() - w)))
         self.setGeometry(pos.x(), pos.y(), w, h)
         self._ensure_visible(self.index)
         self.show()

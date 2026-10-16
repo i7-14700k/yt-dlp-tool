@@ -243,3 +243,10 @@ def test_os_failure_kinds():
     assert os_failure(PermissionError(errno.EACCES, "Permission denied", "C:/x")).kind == "permission"
     assert os_failure(OSError(errno.ENAMETOOLONG, "File name too long")).kind == "path"
     assert os_failure(FileNotFoundError(errno.ENOENT, "No such file", "Z:/share")).title.startswith("The output")
+
+
+def test_load_ignores_a_queue_file_that_isnt_one(qm):
+    for text in ("[1, 2]", "null", '"x"', '{"jobs": [1, "x"]}'):
+        qm.state_path.write_text(text, encoding="utf-8")
+        qm.load()
+        assert qm.jobs == []

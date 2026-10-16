@@ -90,6 +90,14 @@ class Confirm(_Base):
         self.setLayout(vbox(t, b, 8, hbox(None, self.cancel, self.ok), spacing=10, margins=(24, 22, 24, 20)))
         self.ok.setFocus()
 
+    def keyPressEvent(self, e) -> None:  # noqa: N802
+        # Enter presses the focused button, as in a Windows message box. QDialog only does that
+        # for QPushButtons, so without this Enter did nothing.
+        if e.key() in (Qt.Key_Return, Qt.Key_Enter):
+            (self.cancel if self.focusWidget() is self.cancel else self.ok).click()
+            return
+        super().keyPressEvent(e)
+
     @classmethod
     def ask(cls, parent, title: str, body: str, ok: str = "OK", cancel: str = "Cancel") -> bool:
         return cls(parent, title, body, ok, cancel).exec() == QDialog.Accepted
@@ -146,6 +154,8 @@ class LogViewer(_Base):
             text = data.decode("utf-8", "replace")
             # Progress lines are noise in a log view.
             text = "\n".join(ln for ln in text.splitlines() if not ln.startswith("@@P "))
+            if not text:
+                return
             self.text.appendPlainText(text)
             if at_end:
                 self.text.moveCursor(QTextCursor.End)
