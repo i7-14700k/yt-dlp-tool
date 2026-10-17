@@ -47,7 +47,8 @@ FFmpeg can't read them.
 
 Download `Ingest-<version>-Setup-x64.exe` (per-user install, no admin) or the
 portable zip from the latest successful
-[build run](../../actions/workflows/build.yml) under Artifacts. The build
+[GitHub release](../../releases/latest). Unreleased builds are also available
+from successful [build runs](../../actions/workflows/build.yml) under Artifacts. The build
 isn't code-signed, so SmartScreen warns on first run: More info > Run anyway.
 
 On first launch Ingest installs its engines from their official GitHub
@@ -79,6 +80,12 @@ while the last one converts. Pausing a download keeps the partial files;
 pausing a conversion suspends FFmpeg in place. Unfinished work resumes on the
 next launch.
 
+Epidemic Sound music links (`epidemicsound.com/music/tracks/<UUID>/`) work in
+the same URL field, including Inspect. Ingest reads the track's published
+audio URLs and prefers the full mix over individual stems. Select Original
+to keep the served MP3, or an audio output profile to convert it. This uses
+the site's MP3 playback stream.
+
 When a download fails, Ingest retries on its own where that can help:
 with your browser cookies when a site asks you to sign in, with browser
 impersonation when a site blocks the request (HTTP 403, Cloudflare), with a
@@ -98,7 +105,7 @@ site asks, unless you choose otherwise.
 pip install -r requirements-dev.txt
 python -m ingest                      # run from source (src/ on PYTHONPATH)
 pyinstaller --noconfirm packaging/ingest.spec
-iscc /DAppVersion=1.0.0 packaging/ingest.iss
+iscc /DAppVersion=1.0.1 packaging/ingest.iss
 ```
 
 CI (`.github/workflows/build.yml`) builds on `windows-latest`, runs the frozen

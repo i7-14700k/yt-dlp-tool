@@ -1,6 +1,6 @@
 [project]
 name = "ingest"
-version = "1.0.0"
+version = "1.0.1"
 description = "Download media from almost any site, ready for Premiere Pro and After Effects."
 requires-python = ">=3.11"
 dependencies = ["PySide6-Essentials>=6.8,<7"]

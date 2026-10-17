@@ -40,6 +40,7 @@ a = Analysis(  # noqa: F821
     [str(ROOT / "packaging" / "launch.py")],
     pathex=[str(ROOT / "src")],
     datas=[(str(ROOT / "assets" / "fonts"), "assets/fonts"),
+           (str(ROOT / "plugins"), "plugins"),
            (str(ROOT / "assets" / "icon.ico"), "assets"),
            (str(ROOT / "assets" / "icon.png"), "assets"),
            (str(ROOT / "assets" / "fonts" / "OFL.txt"), "licenses")],

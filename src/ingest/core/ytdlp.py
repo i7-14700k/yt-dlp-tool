@@ -6,6 +6,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import paths
 from .settings import OutputOptions, Settings
 from .util import normalize_country, normalize_proxy, normalize_rate, split_args
 
@@ -89,6 +90,7 @@ def split_extra(text: str) -> list[str]:
 
 def base_args(tools: Tools, net: Network, attempt: Attempt) -> list[str]:
     a = [tools.ytdlp, "--ignore-config", "--color", "never", "--newline", "--no-mtime",
+         "--plugin-dirs", str(paths.resource_dir() / "plugins"),
          "--retries", str(net.retries), "--fragment-retries", str(net.retries), "--extractor-retries", "3",
          "--retry-sleep", "fragment:exp=1:20", "--socket-timeout", "30",
          "--concurrent-fragments", str(max(1, min(16, net.fragments)))]

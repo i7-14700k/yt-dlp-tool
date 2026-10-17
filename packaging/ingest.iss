@@ -1,8 +1,8 @@
 ; Inno Setup script. Per-user install, no administrator rights needed.
-; Build: iscc /DAppVersion=1.0.0 packaging\ingest.iss  (after PyInstaller has produced dist\Ingest)
+; Build: iscc /DAppVersion=1.0.1 packaging\ingest.iss  (after PyInstaller has produced dist\Ingest)
 
 #ifndef AppVersion
-  #define AppVersion "1.0.0"
+  #define AppVersion "1.0.1"
 #endif
 
 [Setup]
